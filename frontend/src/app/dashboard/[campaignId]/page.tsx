@@ -615,7 +615,7 @@ export default function DashboardPage() {
 
         {/* Recent Transactions */}
         <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
-          <div className="mb-6 flex items-center justify-between gap-4">
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
             <h3 className="text-sm font-semibold uppercase tracking-widest text-steel font-mono">
               On-Chain Explorer Integration
             </h3>
@@ -637,8 +637,8 @@ export default function DashboardPage() {
               </button>
             )}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-sky/70">
+          <div className="overflow-x-auto -mx-6 px-6">
+            <table className="w-full min-w-[480px] text-left text-sm text-sky/70">
               <thead className="border-b border-white/10 text-[10px] uppercase tracking-widest text-steel">
                 <tr>
                   <th className="pb-4 pr-4">Type</th>
@@ -658,7 +658,7 @@ export default function DashboardPage() {
                         {item.type}
                       </span>
                     </td>
-                    <td className="py-4 pr-4 font-mono text-xs">{item.user}</td>
+                    <td className="py-4 pr-4 font-mono text-xs max-w-[120px] truncate">{item.user}</td>
                     <td className="py-4 pr-4 text-white font-medium">{item.asset}</td>
                     <td className="py-4 pr-4 text-white font-medium">{item.amount}</td>
                     <td className="py-4 pr-4 text-right tabular-nums">{item.age}</td>
