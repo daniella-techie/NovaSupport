@@ -5,7 +5,7 @@ import {
   TrendingUp,
   Send,
   Award,
-  Update,
+  RefreshCw,
   ChevronDown,
   Loader2,
 } from "lucide-react";
@@ -37,7 +37,7 @@ function getActivityIcon(type: string) {
     case "milestone":
       return <Award className="h-5 w-5 text-yellow-400" />;
     case "profile_update":
-      return <Update className="h-5 w-5 text-blue-400" />;
+      return <RefreshCw className="h-5 w-5 text-blue-400" />;
     default:
       return <TrendingUp className="h-5 w-5 text-white/50" />;
   }
@@ -89,18 +89,15 @@ export function ActivityFeed({ username, limit = 10 }: ActivityFeedProps) {
       setLoading(true);
       setError(null);
 
-      // Fetch transactions
       const [transactionsRes, milestonesRes] = await Promise.all([
         fetch(`${API_BASE_URL}/profiles/${username}/transactions?limit=100`),
-        fetch(`${API_BASE_URL}/profiles/${username}/milestones`).catch(() =>
-          ({ ok: false })
-        ),
+        fetch(`${API_BASE_URL}/profiles/${username}/milestones`).catch(() => null),
       ]);
 
       const transactionsData = transactionsRes.ok
         ? await transactionsRes.json()
         : { transactions: [] };
-      const milestonesData = milestonesRes.ok
+      const milestonesData = milestonesRes?.ok
         ? await milestonesRes.json()
         : { milestones: [] };
 

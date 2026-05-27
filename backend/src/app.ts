@@ -1645,18 +1645,16 @@ export function createApp(customLogger?: Logger) {
         "Asset Code",
         "Asset Issuer",
         "Amount",
-        "USD Value (if available)",
         "Status",
       ];
 
       const rows = transactions.map((tx) => [
-        new Date(tx.createdAt).toISOString().split("T")[0], // YYYY-MM-DD format
+        new Date(tx.createdAt).toISOString().split("T")[0],
         tx.txHash,
-        tx.senderAddress,
+        tx.supporterAddress ?? "",
         tx.assetCode,
-        tx.assetIssuer || "native",
+        tx.assetIssuer ?? "native",
         tx.amount.toString(),
-        tx.usdValue ? tx.usdValue.toString() : "",
         tx.status,
       ]);
 
