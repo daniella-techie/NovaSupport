@@ -241,6 +241,13 @@ export default async function ProfilePage({ params }: PageProps) {
           )}
           
           <div className="px-2">
+            <h3 className="text-sm font-semibold uppercase tracking-widest text-steel mb-4">
+              Activity Feed
+            </h3>
+            <ActivityFeed username={profile.username} limit={8} />
+          </div>
+
+          <div className="px-2">
             <ProfileTabs username={profile.username} />
           </div>
 
