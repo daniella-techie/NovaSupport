@@ -30,11 +30,13 @@ model Profile {
   githubHandle        String?
   walletAddress       String
   ownerId             String
+  viewCount           Int                  @default(0)
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   owner               User                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   acceptedAssets      AcceptedAsset[]
   supportTransactions SupportTransaction[]
+  badges              ProfileBadge[]
 }
 
 model AcceptedAsset {
@@ -70,3 +72,24 @@ model SupportTransaction {
   @@index([supporterId])
 }
 
+model Badge {
+  id          String         @id @default(cuid())
+  name        String         @unique
+  description String
+  icon        String
+  criteria    String
+  createdAt   DateTime       @default(now())
+  profiles    ProfileBadge[]
+}
+
+model ProfileBadge {
+  id        String   @id @default(cuid())
+  profileId String
+  badgeId   String
+  awardedAt DateTime @default(now())
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, badgeId])
+  @@index([profileId])
+}

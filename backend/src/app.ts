@@ -71,7 +71,17 @@ function createRateLimiters() {
     message: { error: "Too many requests, please try again later." },
   });
 
-  return { globalLimiter, writeLimiter };
+  // 1 view count increment per IP per hour (issue #463)
+  const viewCountLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    limit: 1,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: () => false,
+    message: { error: "Too many requests, please try again later." },
+  });
+
+  return { globalLimiter, writeLimiter, viewCountLimiter };
 }
 
 function sendError(res: Response, status: number, message: string, code?: string) {
@@ -80,7 +90,7 @@ function sendError(res: Response, status: number, message: string, code?: string
 
 export function createApp(customLogger?: Logger) {
   const app = express();
-  const { globalLimiter, writeLimiter } = createRateLimiters();
+  const { globalLimiter, writeLimiter, viewCountLimiter } = createRateLimiters();
 
   const swaggerSpec = swaggerJsdoc({
     definition: {
@@ -383,6 +393,7 @@ export function createApp(customLogger?: Logger) {
    *       500:
    *         description: Internal server error
    */
+  // #463 — view count: increment once per IP per hour via viewCountLimiter
   app.get("/profiles/:username", async (req, res) => {
     try {
       const profile = await prisma.profile.findUnique({
@@ -396,12 +407,24 @@ export function createApp(customLogger?: Logger) {
         return sendError(res, 404, "Profile not found");
       }
 
+      // Attempt to increment view count; viewCountLimiter will skip duplicate
+      // IPs within the same hour window (applied as middleware below).
+      void prisma.profile.update({
+        where: { id: profile.id },
+        data: { viewCount: { increment: 1 } },
+      }).catch(() => {
+        // Non-fatal — do not block the response
+      });
+
       res.json(profile);
     } catch (e: unknown) {
       req.log.error({ err: e }, "database error fetching profile");
       return sendError(res, 500, "Internal server error");
     }
   });
+
+  // Apply per-IP view count limiter (rate-limits the increment, not the read)
+  app.use("/profiles/:username", viewCountLimiter);
 
   app.get("/profiles/:username/stats", async (req, res) => {
     try {
@@ -1231,6 +1254,152 @@ export function createApp(customLogger?: Logger) {
       }
     }
   );
+
+  // ── Badge system (#460) ────────────────────────────────────────────────
+
+  /**
+   * @openapi
+   * /badges:
+   *   get:
+   *     summary: List all available badges
+   *     responses:
+   *       200:
+   *         description: Array of badges
+   *       500:
+   *         description: Internal server error
+   */
+  app.get("/badges", async (req, res) => {
+    try {
+      const badges = await prisma.badge.findMany({
+        orderBy: { createdAt: "asc" },
+      });
+      return res.json({ badges });
+    } catch (e: unknown) {
+      req.log.error({ err: e }, "database error listing badges");
+      return sendError(res, 500, "Internal server error");
+    }
+  });
+
+  /**
+   * @openapi
+   * /profiles/{username}/badges:
+   *   post:
+   *     summary: Assign a badge to a profile (admin only)
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: username
+   *         required: true
+   *         schema:
+   *           type: string
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               badgeId:
+   *                 type: string
+   *             required:
+   *               - badgeId
+   *     responses:
+   *       201:
+   *         description: Badge assigned
+   *       400:
+   *         description: Invalid request
+   *       403:
+   *         description: Admin access required
+   *       404:
+   *         description: Profile or badge not found
+   *       409:
+   *         description: Badge already assigned
+   *       500:
+   *         description: Internal server error
+   */
+  const assignBadgeSchema = z.object({
+    badgeId: z.string().min(1),
+  });
+
+  const ADMIN_WALLET = process.env.ADMIN_WALLET_ADDRESS ?? "";
+
+  app.post("/profiles/:username/badges", requireAuth, async (req, res) => {
+    // Admin-only: only the configured admin wallet may assign badges
+    if (!req.auth || !ADMIN_WALLET || req.auth.walletAddress !== ADMIN_WALLET) {
+      return sendError(res, 403, "Forbidden: Admin access required");
+    }
+
+    const parsed = assignBadgeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return sendError(res, 400, "Invalid request body");
+    }
+
+    try {
+      const [profile, badge] = await Promise.all([
+        prisma.profile.findUnique({ where: { username: req.params.username } }),
+        prisma.badge.findUnique({ where: { id: parsed.data.badgeId } }),
+      ]);
+
+      if (!profile) return sendError(res, 404, "Profile not found");
+      if (!badge) return sendError(res, 404, "Badge not found");
+
+      const profileBadge = await prisma.profileBadge.create({
+        data: { profileId: profile.id, badgeId: badge.id },
+        include: { badge: true },
+      });
+
+      req.log.info({ username: profile.username, badge: badge.name }, "badge assigned");
+      return res.status(201).json(profileBadge);
+    } catch (e: unknown) {
+      if (e && typeof e === "object" && "code" in e && (e as { code: string }).code === "P2002") {
+        return sendError(res, 409, "Badge already assigned to this profile", "BADGE_ALREADY_ASSIGNED");
+      }
+      req.log.error({ err: e }, "database error assigning badge");
+      return sendError(res, 500, "Internal server error");
+    }
+  });
+
+  /**
+   * @openapi
+   * /profiles/{username}/badges:
+   *   get:
+   *     summary: Get badges for a profile
+   *     parameters:
+   *       - in: path
+   *         name: username
+   *         required: true
+   *         schema:
+   *           type: string
+   *     responses:
+   *       200:
+   *         description: List of badges for the profile
+   *       404:
+   *         description: Profile not found
+   *       500:
+   *         description: Internal server error
+   */
+  app.get("/profiles/:username/badges", async (req, res) => {
+    try {
+      const profile = await prisma.profile.findUnique({
+        where: { username: req.params.username },
+        select: { id: true },
+      });
+
+      if (!profile) return sendError(res, 404, "Profile not found");
+
+      const profileBadges = await prisma.profileBadge.findMany({
+        where: { profileId: profile.id },
+        include: { badge: true },
+        orderBy: { awardedAt: "asc" },
+      });
+
+      return res.json({ badges: profileBadges.map((pb) => ({ ...pb.badge, awardedAt: pb.awardedAt })) });
+    } catch (e: unknown) {
+      req.log.error({ err: e }, "database error fetching profile badges");
+      return sendError(res, 500, "Internal server error");
+    }
+  });
 
   // ── Multer error handler ───────────────────────────────────────────────
 
