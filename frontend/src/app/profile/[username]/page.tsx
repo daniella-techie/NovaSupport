@@ -295,9 +295,11 @@ export default async function ProfilePage({ params }: PageProps) {
           ) : (
             <div className="mt-6">
               <EmptyState
-                variant="supporters"
-                title="Be the first to support!"
+                variant="no-supporters"
+                title="Be the first to support this creator."
                 description="This profile hasn't received support yet."
+                ctaLabel="Support Creator"
+                ctaHref={`/profile/${profile.username}`}
               />
             </div>
           )}

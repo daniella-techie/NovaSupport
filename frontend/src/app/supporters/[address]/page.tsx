@@ -117,6 +117,7 @@ export default async function SupporterPage({ params }: PageProps) {
       <AppShell>
         <div className="mx-auto max-w-4xl">
           <EmptyState
+            variant="no-results"
             title="Supporter unavailable"
             description="Support history could not be loaded right now."
           />
@@ -205,8 +206,11 @@ export default async function SupporterPage({ params }: PageProps) {
 
         {data.totalTransactions === 0 ? (
           <EmptyState
-            title="No support activity yet"
+            variant="no-transactions"
+            title="No transactions yet."
             description="This wallet has not supported any creator profiles yet."
+            ctaLabel="Explore Creators"
+            ctaHref="/explore"
           />
         ) : (
           <>
