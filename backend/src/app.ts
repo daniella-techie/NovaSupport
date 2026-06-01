@@ -413,6 +413,45 @@ All errors return JSON with an \`error\` field and optional \`code\`:
   app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
   app.get("/docs.json", (req, res) => res.json(swaggerSpec));
 
+  // ── Stellar TOML (#514) ───────────────────────────────────────────────
+  // Must be registered before any other middleware that might intercept it.
+  // Required by Stellar wallets and federation resolvers.
+  // Spec: https://developers.stellar.org/docs/learn/encyclopedia/network-configuration/stellar-toml
+  let tomlCache: { body: string; expiresAt: number } | null = null;
+
+  app.get("/.well-known/stellar.toml", async (_req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cache-Control", "public, max-age=60");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+
+    const now = Date.now();
+    if (tomlCache && now < tomlCache.expiresAt) {
+      return res.send(tomlCache.body);
+    }
+
+    try {
+      const profiles = await prisma.profile.findMany({
+        select: { walletAddress: true },
+      });
+
+      const accountLines = profiles
+        .map((p) => `[[ACCOUNTS]]\naddress = "${p.walletAddress}"`)
+        .join("\n\n");
+
+      const body = [
+        `NETWORK_PASSPHRASE="Test SDF Network ; September 2015"`,
+        `FEDERATION_SERVER="https://api.novasupport.xyz/federation"`,
+        ``,
+        accountLines || `# no accounts yet`,
+      ].join("\n");
+
+      tomlCache = { body, expiresAt: now + 60_000 };
+      return res.send(body);
+    } catch {
+      return res.status(500).send("# Internal server error");
+    }
+  });
+
   // In-memory challenge store (stateless with signed timestamp)
   const challenges = new Map<
     string,

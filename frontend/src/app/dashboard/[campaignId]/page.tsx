@@ -263,6 +263,17 @@ export default function DashboardPage() {
   const [resendingVerification, setResendingVerification] = useState(false);
   const [verificationBannerMsg, setVerificationBannerMsg] = useState<string | null>(null);
   const [verificationBannerType, setVerificationBannerType] = useState<"success" | "error">("success");
+  const [trends, setTrends] = useState<{
+    totalRaised: string;
+    totalRaisedPositive: boolean;
+    txCount: string;
+    txCountPositive: boolean;
+  }>({
+    totalRaised: "—",
+    totalRaisedPositive: true,
+    txCount: "—",
+    txCountPositive: true,
+  });
 
   useEffect(() => {
     async function fetchData() {
@@ -341,6 +352,59 @@ export default function DashboardPage() {
     const wallet = window.localStorage.getItem("walletAddress");
     if (wallet) setConnectedWallet(wallet);
   }, []);
+
+  // Fetch two consecutive 30-day periods and compute period-over-period trends (#517)
+  useEffect(() => {
+    async function fetchTrends() {
+      try {
+        const now = new Date();
+        const periodEnd = now.toISOString();
+        const periodStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const prevStart = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString();
+
+        const [currRes, prevRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/profiles/${campaignId}/analytics/timeseries?period=daily&from=${encodeURIComponent(periodStart)}&to=${encodeURIComponent(periodEnd)}`),
+          fetch(`${API_BASE_URL}/profiles/${campaignId}/analytics/timeseries?period=daily&from=${encodeURIComponent(prevStart)}&to=${encodeURIComponent(periodStart)}`),
+        ]);
+
+        if (!currRes.ok || !prevRes.ok) return;
+
+        const [currJson, prevJson] = await Promise.all([currRes.json(), prevRes.json()]) as [
+          { data?: Array<{ amount: string; count: number }> },
+          { data?: Array<{ amount: string; count: number }> },
+        ];
+
+        const sum = (arr: Array<{ amount: string; count: number }>, key: "amount" | "count") =>
+          arr.reduce((acc, d) => acc + (key === "amount" ? Number(d.amount) : d.count), 0);
+
+        const currAmount = sum(currJson.data ?? [], "amount");
+        const prevAmount = sum(prevJson.data ?? [], "amount");
+        const currCount = sum(currJson.data ?? [], "count");
+        const prevCount = sum(prevJson.data ?? [], "count");
+
+        function formatTrend(curr: number, prev: number): { label: string; positive: boolean } {
+          if (prev === 0) return curr === 0 ? { label: "No change", positive: true } : { label: "+100%", positive: true };
+          const pct = ((curr - prev) / prev) * 100;
+          if (pct === 0) return { label: "No change", positive: true };
+          const sign = pct > 0 ? "+" : "";
+          return { label: `${sign}${pct.toFixed(1)}%`, positive: pct >= 0 };
+        }
+
+        const raisedTrend = formatTrend(currAmount, prevAmount);
+        const countTrend = formatTrend(currCount, prevCount);
+
+        setTrends({
+          totalRaised: raisedTrend.label,
+          totalRaisedPositive: raisedTrend.positive,
+          txCount: countTrend.label,
+          txCountPositive: countTrend.positive,
+        });
+      } catch {
+        // leave defaults ("—")
+      }
+    }
+    fetchTrends();
+  }, [campaignId]);
 
   const isOwner = Boolean(
     settings?.walletAddress &&
@@ -515,28 +579,28 @@ export default function DashboardPage() {
             title="Total Raised" 
             value={`${data.summary.totalRaised.toLocaleString()} XLM`}
             icon={<Wallet className="text-mint" />}
-            trend="+12.5%"
-            positive={true}
+            trend={trends.totalRaised}
+            positive={trends.totalRaisedPositive}
           />
           <StatCard 
             title="Contributors" 
             value={data.summary.totalContributors.toString()}
             icon={<Users className="text-sky" />}
-            trend="+8"
-            positive={true}
+            trend={trends.txCount}
+            positive={trends.txCountPositive}
           />
           <StatCard 
             title="Avg. Support" 
             value={`${data.summary.avgContribution} XLM`}
             icon={<TrendingUp className="text-gold" />}
-            trend="-2.4%"
-            positive={false}
+            trend="—"
+            positive={true}
           />
           <StatCard 
             title="Active Drips" 
             value={data.summary.activeDrips.toString()}
             icon={<Activity className="text-purple-400" />}
-            trend="Stable"
+            trend="—"
             positive={true}
           />
         </div>
@@ -818,9 +882,9 @@ function StatCard({ title, value, icon, trend, positive }: {
           {icon}
         </div>
         <div className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-tight ${
-          positive ? "text-mint" : trend === "Stable" ? "text-steel" : "text-red-400"
+          trend === "—" || trend === "No change" ? "text-steel" : positive ? "text-mint" : "text-red-400"
         }`}>
-          {positive ? <ArrowUpRight size={14} /> : trend === "Stable" ? null : <ArrowDownRight size={14} />}
+          {trend !== "—" && trend !== "No change" && (positive ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />)}
           {trend}
         </div>
       </div>
