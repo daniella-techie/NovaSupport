@@ -6,7 +6,7 @@ import { API_BASE_URL } from "@/lib/config";
 import { AppShell } from "@/components/app-shell";
 import { useToast } from "@/lib/use-toast";
 import { Toast } from "@/components/toast";
-import { validateStellarAddress } from "@/lib/stellar";
+import { validateWalletAddress } from "@/lib/stellar";
 
 interface FormData {
   username: string;
@@ -108,7 +108,7 @@ export default function CreatePage() {
     };
   }
 
-  const walletValidation = validateStellarAddress(form.walletAddress);
+  const walletValidation = validateWalletAddress(form.walletAddress);
   const walletValid = form.walletAddress === "" || walletValidation.isValid;
 
   const twitterInvalid =
@@ -413,7 +413,7 @@ export default function CreatePage() {
                   )}
                   {form.walletAddress && walletValid && (
                     <p className="text-[11px] text-mint/70 pl-1 mt-1">
-                      ✓ Valid Stellar address
+                      Valid Stellar address.
                     </p>
                   )}
                 </div>

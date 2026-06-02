@@ -36,13 +36,14 @@ The MVP only needs to show clear Soroban intent for the Stellar Wave submission.
 
 ## Deployed Contract (Testnet)
 
-| Field       | Value                                                       |
-| ----------- | ----------------------------------------------------------- |
-| Contract ID | `NEXT_PUBLIC_CONTRACT_ID` (set in `frontend/.env.local`)    |
-| Network     | Stellar Testnet                                             |
-| Explorer    | https://stellar.expert/explorer/testnet/contract/&lt;id&gt; |
+| Field          | Value                                                                                                                                                 |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Contract ID    | `CDSIKFT4Z5UDWJ6BU5R7F7O6G6NCVXZ6GTNTPWFFOW6PHA2APK3PRR6U`                                                                                          |
+| Deployer       | `GAYSFWP7XAVIEHWWTOPPD4MVZUOTIQQAVWZIPT6LSAF6PO3MIAKXLGQS`                                                                                          |
+| Network        | Stellar Testnet                                                                                                                                       |
+| Explorer       | https://stellar.expert/explorer/testnet/contract/CDSIKFT4Z5UDWJ6BU5R7F7O6G6NCVXZ6GTNTPWFFOW6PHA2APK3PRR6U                                           |
 
-The contract ID is recorded in `frontend/.env.example` as `NEXT_PUBLIC_CONTRACT_ID`. After deploying, set the actual ID in `frontend/.env.local` (not committed) and update this table with the deployed contract ID and deployer address.
+The contract ID is set as `NEXT_PUBLIC_CONTRACT_ID` in `frontend/.env.example`. Copy it to `frontend/.env.local` (not committed) for local development.
 
 ## Troubleshooting
 
@@ -373,6 +374,18 @@ const preparedTx = await server.prepareTransaction(tx);
 **Note:** Remember to sign the transaction with the supporter's keypair or using a wallet like Freighter before submitting.
 
 ### Deployment & Upgrades
+
+Soroban contract code is immutable for a deployed contract ID. Treat every deploy as a new release candidate: test the WASM locally, deploy to Testnet, then update clients only after verification.
+
+#### Pre-deploy verification
+
+```bash
+cd contract
+cargo test
+stellar contract build
+```
+
+Before updating `NEXT_PUBLIC_CONTRACT_ID` or backend indexer config, invoke the Testnet contract with a funded account and confirm `support_count` and `recipient_count` return expected values.
 
 #### Initial Deployment
 

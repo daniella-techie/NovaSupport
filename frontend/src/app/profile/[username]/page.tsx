@@ -5,11 +5,15 @@ import { ProfileCard } from "@/components/profile-card";
 import { SupportPanel } from "@/components/support-panel";
 import { ProfileTabs } from "@/components/profile-tabs";
 import { QRCodeButton } from "@/components/qr-code-button";
+import { RSSFeedButton } from "@/components/rss-feed-button";
+import { ShareButton } from "@/components/share-button";
 import { EmptyState } from "@/components/empty-state";
 import { EmbedCodeGenerator } from "@/components/embed-widget";
 import { MilestoneCard } from "@/components/milestone-card";
 import { ActivityFeed } from "@/components/activity-feed";
-import { API_BASE_URL } from "@/lib/config";
+import { EditProfileButton } from "@/components/edit-profile-button";
+import { API_BASE_URL, SITE_URL } from "@/lib/config";
+import { stellarExpertUrl } from "@/lib/stellar";
 
 type PageProps = {
   params: {
@@ -46,7 +50,15 @@ type Milestone = {
   assetCode: string;
   status: string;
   createdAt: string;
-    }
+};
+
+type Badge = {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  awardedAt: string;
+};
 type LeaderboardEntry = {
   rank: number;
   supporterAddress: string;
@@ -197,13 +209,23 @@ async function getMilestones(username: string): Promise<Milestone[]> {
   return body.milestones ?? body ?? [];
 }
 
+async function getBadges(username: string): Promise<Badge[]> {
+  const res = await fetch(`${API_BASE_URL}/profiles/${username}/badges`, {
+    next: { revalidate: 60 },
+  });
+  if (!res.ok) return [];
+  const body = await res.json();
+  return body.badges ?? [];
+}
+
 export default async function ProfilePage({ params }: PageProps) {
-  const [profile, transactions, leaderboard, stats, milestones] = await Promise.all([
+  const [profile, transactions, leaderboard, stats, milestones, badges] = await Promise.all([
     getProfile(params.username),
     getTransactions(params.username, 10),
     getLeaderboard(params.username),
     getStats(params.username),
     getMilestones(params.username),
+    getBadges(params.username),
   ]);
 
   const visibleMilestones = milestones.filter((m) => m.status === "active" || m.status === "reached");
@@ -223,10 +245,38 @@ export default async function ProfilePage({ params }: PageProps) {
               isVerified={profile.emailVerified}
               stats={stats || undefined}
             />
-            <div className="px-2">
+            <div className="px-2 flex gap-2">
               <QRCodeButton username={profile.username} />
+              <RSSFeedButton username={profile.username} />
+              <ShareButton displayName={profile.displayName} username={profile.username} />
+              <EditProfileButton username={profile.username} walletAddress={profile.walletAddress} />
             </div>
           </div>
+
+          {badges.length > 0 && (
+            <div className="px-2">
+              <h3 className="text-sm font-semibold uppercase tracking-widest text-steel mb-3">
+                Badges
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {badges.slice(0, 6).map((badge) => (
+                  <div
+                    key={badge.id}
+                    title={badge.name}
+                    className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm hover:bg-white/10 transition-colors cursor-default"
+                  >
+                    <span>{badge.icon}</span>
+                    <span className="text-xs text-steel">{badge.name}</span>
+                  </div>
+                ))}
+                {badges.length > 6 && (
+                  <div className="flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-steel">
+                    +{badges.length - 6} more
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {visibleMilestones.length > 0 && (
             <div className="px-2 space-y-4">
@@ -278,7 +328,7 @@ export default async function ProfilePage({ params }: PageProps) {
                   >
                     <span className="text-xs text-sky/70">#{entry.rank}</span>
                     <a
-                      href={`https://stellar.expert/explorer/testnet/account/${entry.supporterAddress}`}
+                      href={stellarExpertUrl("account", entry.supporterAddress)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="font-mono text-xs text-white hover:text-mint transition-colors"
@@ -295,9 +345,11 @@ export default async function ProfilePage({ params }: PageProps) {
           ) : (
             <div className="mt-6">
               <EmptyState
-                variant="supporters"
-                title="Be the first to support!"
+                variant="no-supporters"
+                title="Be the first to support this creator."
                 description="This profile hasn't received support yet."
+                ctaLabel="Support Creator"
+                ctaHref={`/profile/${profile.username}`}
               />
             </div>
           )}

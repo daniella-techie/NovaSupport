@@ -40,51 +40,27 @@ export type ValidationResult = {
   error?: string;
 };
 
-export function validateStellarAddress(rawAddress: string): ValidationResult {
+export function validateWalletAddress(rawAddress: string): ValidationResult {
   const address = rawAddress.trim();
 
   if (!address) {
-    return { isValid: false, error: "Wallet address is required" };
+    return { isValid: false, error: "Wallet address is required." };
   }
 
   if (address.length < 56) {
-    if (address.startsWith("G")) {
-      return {
-        isValid: false,
-        error: `Address is too short — expected 56 characters, got ${address.length}. Stellar addresses always have exactly 56 characters.`,
-      };
-    }
-    return {
-      isValid: false,
-      error: `Address looks too short (${address.length} chars). A valid Stellar address is exactly 56 characters and starts with "G".`,
-    };
+    return { isValid: false, error: "Wallet address must contain 56 characters." };
   }
 
   if (address.length > 56) {
-    return {
-      isValid: false,
-      error: `Address is too long — expected 56 characters, got ${address.length}. Check for extra spaces or characters.`,
-    };
+    return { isValid: false, error: "Wallet address must contain exactly 56 characters." };
   }
 
   if (!address.startsWith("G")) {
-    if (/^[A-Z]/.test(address)) {
-      return { isValid: false, error: `Stellar public keys must start with 'G', not '${address[0]}'. Check you have the right address type.` };
-    }
-    return { isValid: false, error: "Stellar public keys must start with the letter 'G' (e.g., GABCDEF...)." };
-  }
-
-  // Base32 check (A-Z, 2-7)
-  if (!/^[A-Z2-7]+$/.test(address)) {
-    const invalidChars = [...new Set(address.split("").filter((c) => !/^[A-Z2-7]$/.test(c)))];
-    return {
-      isValid: false,
-      error: `Contains invalid character${invalidChars.length > 1 ? "s" : ""}: "${invalidChars.join('", "')}". Stellar addresses only use letters A-Z and digits 2-7.`,
-    };
+    return { isValid: false, error: "Stellar addresses must start with G." };
   }
 
   if (!StrKey.isValidEd25519PublicKey(address)) {
-    return { isValid: false, error: "Invalid checksum — one or more characters may be wrong. Double-check each character carefully." };
+    return { isValid: false, error: "Wallet address appears invalid." };
   }
 
   return { isValid: true };
@@ -258,6 +234,11 @@ function sleep(ms: number): Promise<void> {
 
 export function getNetworkLabel(): string {
   return stellarConfig.stellarNetwork === "PUBLIC" ? "Mainnet" : "Testnet";
+}
+
+export function stellarExpertUrl(type: "tx" | "account" | "contract", id: string): string {
+  const net = stellarConfig.stellarNetwork === "PUBLIC" ? "public" : "testnet";
+  return `https://stellar.expert/explorer/${net}/${type}/${id}`;
 }
 
 export function getDefaultNetworkPassphrase(): string {

@@ -290,9 +290,11 @@ export default function ExplorePage() {
 
             {profiles.length === 0 && !loading && !error && (
               <EmptyState
-                variant="explore"
-                title="No creators found"
+                variant="no-results"
+                title="No creators matched your search."
                 description="Try adjusting your search filters or check back later."
+                ctaLabel="Explore Creators"
+                ctaHref="/explore"
               />
             )}
           </>

@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { API_BASE_URL } from "@/lib/config";
+import { stellarExpertUrl } from "@/lib/stellar";
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
@@ -37,6 +38,7 @@ interface AnalyticsData {
 type ProfileSettings = {
   walletAddress: string;
   email?: string | null;
+  emailVerified?: boolean;
   notifyOnSupport?: boolean;
 };
 
@@ -214,7 +216,7 @@ function downloadCsv(rows: TransactionCsvRow[]): void {
     "Stellar Expert URL",
   ];
   const lines = rows.map((row) => {
-    const stellarExpertUrl = `https://stellar.expert/explorer/testnet/tx/${row.txHash}`;
+    const expertUrl = stellarExpertUrl("tx", row.txHash);
     return [
       new Date(row.createdAt).toISOString(),
       row.amount,
@@ -223,7 +225,7 @@ function downloadCsv(rows: TransactionCsvRow[]): void {
       row.message,
       row.status,
       row.txHash,
-      stellarExpertUrl,
+      expertUrl,
     ].map(csvEscape).join(",");
   });
 
@@ -245,6 +247,20 @@ type AssetBreakdownEntry = {
   percentage: number;
 };
 
+type RecurringDrip = {
+  id: string;
+  profileId?: string;
+  profileUsername?: string;
+  profileDisplayName?: string;
+  supporterAddress?: string;
+  amount: string;
+  assetCode: string;
+  frequency: string;
+  nextRunAt: string;
+  status: string;
+  createdAt: string;
+};
+
 export default function DashboardPage() {
   const { campaignId } = useParams<{ campaignId: string }>();
   const [data, setData] = useState<AnalyticsData | null>(null);
@@ -259,6 +275,12 @@ export default function DashboardPage() {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [resendingVerification, setResendingVerification] = useState(false);
+  const [verificationBannerMsg, setVerificationBannerMsg] = useState<string | null>(null);
+  const [verificationBannerType, setVerificationBannerType] = useState<"success" | "error">("success");
+  const [drips, setDrips] = useState<RecurringDrip[]>([]);
+  const [dripsLoading, setDripsLoading] = useState(true);
+  const [dripActionLoading, setDripActionLoading] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchData() {
@@ -277,6 +299,7 @@ export default function DashboardPage() {
         setSettings({
           walletAddress: toString(profileJson.walletAddress),
           email: toString(profileJson.email, "") || null,
+          emailVerified: toBool(profileJson.emailVerified, false),
           notifyOnSupport: toBool(profileJson.notifyOnSupport, true),
         });
 
@@ -333,9 +356,74 @@ export default function DashboardPage() {
   }, [campaignId, selectedPeriod]);
 
   useEffect(() => {
-    const wallet = window.localStorage.getItem("walletAddress");
-    if (wallet) setConnectedWallet(wallet);
+    async function getFreighterAddress() {
+      try {
+        const { getAddress } = await import("@stellar/freighter-api");
+        const result = await getAddress();
+        if (result.error) {
+          setConnectedWallet("");
+        } else {
+          setConnectedWallet(result.address);
+        }
+      } catch {
+        setConnectedWallet("");
+      }
+    }
+    getFreighterAddress();
   }, []);
+
+  // Fetch two consecutive 30-day periods and compute period-over-period trends (#517)
+  useEffect(() => {
+    async function fetchTrends() {
+      try {
+        const now = new Date();
+        const periodEnd = now.toISOString();
+        const periodStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const prevStart = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString();
+
+        const [currRes, prevRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/profiles/${campaignId}/analytics/timeseries?period=daily&from=${encodeURIComponent(periodStart)}&to=${encodeURIComponent(periodEnd)}`),
+          fetch(`${API_BASE_URL}/profiles/${campaignId}/analytics/timeseries?period=daily&from=${encodeURIComponent(prevStart)}&to=${encodeURIComponent(periodStart)}`),
+        ]);
+
+        if (!currRes.ok || !prevRes.ok) return;
+
+        const [currJson, prevJson] = await Promise.all([currRes.json(), prevRes.json()]) as [
+          { data?: Array<{ amount: string; count: number }> },
+          { data?: Array<{ amount: string; count: number }> },
+        ];
+
+        const sum = (arr: Array<{ amount: string; count: number }>, key: "amount" | "count") =>
+          arr.reduce((acc, d) => acc + (key === "amount" ? Number(d.amount) : d.count), 0);
+
+        const currAmount = sum(currJson.data ?? [], "amount");
+        const prevAmount = sum(prevJson.data ?? [], "amount");
+        const currCount = sum(currJson.data ?? [], "count");
+        const prevCount = sum(prevJson.data ?? [], "count");
+
+        function formatTrend(curr: number, prev: number): { label: string; positive: boolean } {
+          if (prev === 0) return curr === 0 ? { label: "No change", positive: true } : { label: "+100%", positive: true };
+          const pct = ((curr - prev) / prev) * 100;
+          if (pct === 0) return { label: "No change", positive: true };
+          const sign = pct > 0 ? "+" : "";
+          return { label: `${sign}${pct.toFixed(1)}%`, positive: pct >= 0 };
+        }
+
+        const raisedTrend = formatTrend(currAmount, prevAmount);
+        const countTrend = formatTrend(currCount, prevCount);
+
+        setTrends({
+          totalRaised: raisedTrend.label,
+          totalRaisedPositive: raisedTrend.positive,
+          txCount: countTrend.label,
+          txCountPositive: countTrend.positive,
+        });
+      } catch {
+        // leave defaults ("—")
+      }
+    }
+    fetchTrends();
+  }, [campaignId]);
 
   const isOwner = Boolean(
     settings?.walletAddress &&
@@ -343,6 +431,63 @@ export default function DashboardPage() {
     settings.walletAddress === connectedWallet
   );
   const isChartEmpty = chartData.length === 0 || chartData.every((point) => point.amount === 0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchDrips() {
+      setDripsLoading(true);
+      try {
+        const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
+        const endpoint = isOwner
+          ? `${API_BASE_URL}/recurring-support?profileId=${campaignId}`
+          : `${API_BASE_URL}/recurring-support`;
+
+        const res = await fetch(endpoint, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+
+        if (!cancelled) {
+          if (res.ok) {
+            const json = await res.json();
+            setDrips(Array.isArray(json) ? json : []);
+          } else {
+            setDrips([]);
+          }
+        }
+      } catch {
+        if (!cancelled) setDrips([]);
+      } finally {
+        if (!cancelled) setDripsLoading(false);
+      }
+    }
+
+    fetchDrips();
+
+    return () => { cancelled = true; };
+  }, [campaignId, isOwner]);
+
+  async function handleDripAction(id: string, action: "paused" | "cancelled") {
+    setDripActionLoading(id);
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
+      const res = await fetch(`${API_BASE_URL}/recurring-support/${id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ status: action }),
+      });
+      if (res.ok) {
+        setDrips((prev) => prev.filter((d) => d.id !== id));
+      }
+    } catch {
+      // Silently fail
+    } finally {
+      setDripActionLoading(null);
+    }
+  }
 
   async function handleDownloadCsv() {
     if (!isOwner) return;
@@ -390,7 +535,35 @@ export default function DashboardPage() {
     }
   }
 
-  if (loading) return (
+  async function handleResendVerification() {
+    if (!isOwner) return;
+    setResendingVerification(true);
+    setVerificationBannerMsg(null);
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
+      const res = await fetch(`${API_BASE_URL}/profiles/${campaignId}/resend-verification-email`, {
+        method: "POST",
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      const json = await res.json().catch(() => ({})) as Record<string, unknown>;
+      if (res.ok) {
+        setVerificationBannerMsg("Verification email sent — check your inbox");
+        setVerificationBannerType("success");
+      } else {
+        setVerificationBannerMsg(
+          typeof json.error === "string" ? json.error : "Failed to resend verification email"
+        );
+        setVerificationBannerType("error");
+      }
+    } catch {
+      setVerificationBannerMsg("Connection error — please try again");
+      setVerificationBannerType("error");
+    } finally {
+      setResendingVerification(false);
+    }
+  }  if (loading) return (
     <AppShell>
       <div className="flex h-[60vh] items-center justify-center">
         <div className="h-12 w-12 animate-spin rounded-full border-4 border-mint border-t-transparent" />
@@ -426,34 +599,84 @@ export default function DashboardPage() {
           </p>
         </header>
 
+        {/* Email verification banner — owner only */}
+        {isOwner && settings && (
+          <>
+            {settings.email && settings.emailVerified === false && (
+              <div className="rounded-2xl border border-yellow-500/30 bg-yellow-500/10 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className="text-xl leading-none mt-0.5">⚠️</span>
+                  <div>
+                    <p className="text-sm font-semibold text-white">
+                      Your email <span className="font-mono text-yellow-300">{settings.email}</span> is not verified.
+                    </p>
+                    {verificationBannerMsg && (
+                      <p className={`mt-1 text-xs ${verificationBannerType === "success" ? "text-mint" : "text-red-400"}`}>
+                        {verificationBannerMsg}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleResendVerification}
+                  disabled={resendingVerification}
+                  className="inline-flex min-h-[36px] items-center justify-center rounded-xl border border-yellow-500/40 bg-yellow-500/10 px-4 py-1.5 text-xs font-bold text-yellow-300 transition hover:bg-yellow-500/20 disabled:cursor-not-allowed disabled:opacity-60 shrink-0"
+                >
+                  {resendingVerification ? (
+                    <span className="flex items-center gap-2">
+                      <span className="h-3 w-3 animate-spin rounded-full border border-yellow-300 border-t-transparent" />
+                      Sending…
+                    </span>
+                  ) : (
+                    "Resend verification email"
+                  )}
+                </button>
+              </div>
+            )}
+
+            {!settings.email && (
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 flex items-center gap-3">
+                <span className="text-xl leading-none">📧</span>
+                <p className="text-sm text-sky/70">
+                  Add an email to receive support notifications.{" "}
+                  <Link href="/create" className="text-mint hover:underline font-medium">
+                    Edit profile
+                  </Link>
+                </p>
+              </div>
+            )}
+          </>
+        )}
+
         {/* Summary Cards */}
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard 
             title="Total Raised" 
             value={`${data.summary.totalRaised.toLocaleString()} XLM`}
             icon={<Wallet className="text-mint" />}
-            trend="+12.5%"
-            positive={true}
+            trend={trends.totalRaised}
+            positive={trends.totalRaisedPositive}
           />
           <StatCard 
             title="Contributors" 
             value={data.summary.totalContributors.toString()}
             icon={<Users className="text-sky" />}
-            trend="+8"
-            positive={true}
+            trend={trends.txCount}
+            positive={trends.txCountPositive}
           />
           <StatCard 
             title="Avg. Support" 
             value={`${data.summary.avgContribution} XLM`}
             icon={<TrendingUp className="text-gold" />}
-            trend="-2.4%"
-            positive={false}
+            trend="—"
+            positive={true}
           />
           <StatCard 
             title="Active Drips" 
             value={data.summary.activeDrips.toString()}
             icon={<Activity className="text-purple-400" />}
-            trend="Stable"
+            trend="—"
             positive={true}
           />
         </div>
@@ -713,6 +936,91 @@ export default function DashboardPage() {
             )}
           </section>
         )}
+        {/* Recurring Drips */}
+        <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
+          <div className="mb-6 flex items-center justify-between">
+            <h3 className="text-sm font-semibold uppercase tracking-widest text-steel font-mono">
+              Active Drips
+            </h3>
+            {drips.length > 0 && (
+              <span className="rounded-full bg-purple-500/10 px-3 py-1 text-xs font-bold text-purple-400">
+                {drips.length} active
+              </span>
+            )}
+          </div>
+
+          {dripsLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }, (_, i) => (
+                <div key={i} className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+                  <div className="h-4 w-24 animate-pulse rounded bg-white/10" />
+                  <div className="h-4 w-16 animate-pulse rounded bg-white/10" />
+                  <div className="h-4 w-20 animate-pulse rounded bg-white/10" />
+                  <div className="ml-auto h-8 w-20 animate-pulse rounded-xl bg-white/10" />
+                </div>
+              ))}
+            </div>
+          ) : drips.length === 0 ? (
+            <p className="py-8 text-center text-sm text-steel">
+              No active drips{isOwner ? " set up for this profile" : ""}.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {drips.map((drip) => (
+                <div
+                  key={drip.id}
+                  className="flex flex-wrap items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4"
+                >
+                  {isOwner ? (
+                    <>
+                      <span className="min-w-0 flex-1 font-mono text-xs text-sky/80">
+                        {drip.supporterAddress
+                          ? `${drip.supporterAddress.slice(0, 6)}...${drip.supporterAddress.slice(-4)}`
+                          : "Unknown"}
+                      </span>
+                    </>
+                  ) : (
+                    <Link
+                      href={`/profile/${drip.profileUsername}`}
+                      className="min-w-0 flex-1 text-sm font-semibold text-white hover:text-mint transition-colors"
+                    >
+                      {drip.profileDisplayName ?? drip.profileUsername}
+                    </Link>
+                  )}
+                  <span className="text-sm font-bold text-white">
+                    {parseFloat(drip.amount).toLocaleString()} {drip.assetCode}
+                  </span>
+                  <span className="rounded-full border border-white/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase text-sky/70">
+                    {drip.frequency}
+                  </span>
+                  <span className="text-xs text-sky/60">
+                    Next: {new Date(drip.nextRunAt).toLocaleDateString()}
+                  </span>
+                  {!isOwner && (
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleDripAction(drip.id, "paused")}
+                        disabled={dripActionLoading === drip.id}
+                        className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-sky/70 transition hover:bg-white/10 disabled:opacity-50"
+                      >
+                        {dripActionLoading === drip.id ? "..." : "Pause"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDripAction(drip.id, "cancelled")}
+                        disabled={dripActionLoading === drip.id}
+                        className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-400 transition hover:bg-red-500/20 disabled:opacity-50"
+                      >
+                        {dripActionLoading === drip.id ? "..." : "Cancel"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </AppShell>
   );
@@ -735,9 +1043,9 @@ function StatCard({ title, value, icon, trend, positive }: {
           {icon}
         </div>
         <div className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-tight ${
-          positive ? "text-mint" : trend === "Stable" ? "text-steel" : "text-red-400"
+          trend === "—" || trend === "No change" ? "text-steel" : positive ? "text-mint" : "text-red-400"
         }`}>
-          {positive ? <ArrowUpRight size={14} /> : trend === "Stable" ? null : <ArrowDownRight size={14} />}
+          {trend !== "—" && trend !== "No change" && (positive ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />)}
           {trend}
         </div>
       </div>

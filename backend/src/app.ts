@@ -19,6 +19,7 @@ import {
   verifySignature,
   signJWT,
   requireAuth,
+  optionalAuth,
   isValidStellarAddress,
   type AuthContext,
 } from "./auth.js";
@@ -32,13 +33,18 @@ import {
   setCachedLeaderboard,
   type LeaderboardSort,
 } from "./services/profile-leaderboard-cache.js";
-import { generateSignature } from "./services/webhook.js";
+import { processPendingWebhookDeliveries } from "./services/webhook-processor.js";
 import { sanitizeBody, sanitizeQuery } from "./middleware/sanitize.js";
 import { CircuitBreaker } from "./services/circuit-breaker.js";
 import {
   validateUsername,
   validateUsernameWithTakenCheck,
 } from "./utils/username-validator.js";
+import {
+  verifyTransaction as verifyTransactionService,
+  type ExpectedTxDetails,
+} from "./services/verify-transaction.js";
+import { checkAndAwardBadges } from "./services/badge-awarder.js";
 
 // Extend Express Request to include auth context
 declare global {
@@ -214,8 +220,23 @@ function createRateLimiters() {
     message: { error: "Too many requests, please try again later." },
   });
 
-  return { globalLimiter, writeLimiter, viewCountLimiter };
-  return { globalLimiter, writeLimiter, profileCreationLimiter, resendLimiter };
+  // Dedicated auth limiter — 10 requests per 15 min per IP (#561)
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many auth attempts, please try again later." },
+  });
+
+  return {
+    globalLimiter,
+    writeLimiter,
+    profileCreationLimiter,
+    resendLimiter,
+    viewCountLimiter,
+    authLimiter,
+  };
 }
 
 // ── API versioning constants ───────────────────────────────────────────
@@ -288,8 +309,14 @@ function createAnalyticsCsv(transactions: any[]): string {
 
 export function createApp(customLogger?: Logger) {
   const app = express();
-//   const { globalLimiter, writeLimiter, viewCountLimiter } = createRateLimiters();
-  const { globalLimiter, writeLimiter, profileCreationLimiter, resendLimiter } = createRateLimiters();
+  const {
+    globalLimiter,
+    writeLimiter,
+    profileCreationLimiter,
+    resendLimiter,
+    viewCountLimiter,
+    authLimiter,
+  } = createRateLimiters();
 
   const swaggerSpec = swaggerJsdoc({
     definition: {
@@ -386,6 +413,45 @@ All errors return JSON with an \`error\` field and optional \`code\`:
   app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
   app.get("/docs.json", (req, res) => res.json(swaggerSpec));
 
+  // ── Stellar TOML (#514) ───────────────────────────────────────────────
+  // Must be registered before any other middleware that might intercept it.
+  // Required by Stellar wallets and federation resolvers.
+  // Spec: https://developers.stellar.org/docs/learn/encyclopedia/network-configuration/stellar-toml
+  let tomlCache: { body: string; expiresAt: number } | null = null;
+
+  app.get("/.well-known/stellar.toml", async (_req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cache-Control", "public, max-age=60");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+
+    const now = Date.now();
+    if (tomlCache && now < tomlCache.expiresAt) {
+      return res.send(tomlCache.body);
+    }
+
+    try {
+      const profiles = await prisma.profile.findMany({
+        select: { walletAddress: true },
+      });
+
+      const accountLines = profiles
+        .map((p) => `[[ACCOUNTS]]\naddress = "${p.walletAddress}"`)
+        .join("\n\n");
+
+      const body = [
+        `NETWORK_PASSPHRASE="Test SDF Network ; September 2015"`,
+        `FEDERATION_SERVER="https://api.novasupport.xyz/federation"`,
+        ``,
+        accountLines || `# no accounts yet`,
+      ].join("\n");
+
+      tomlCache = { body, expiresAt: now + 60_000 };
+      return res.send(body);
+    } catch {
+      return res.status(500).send("# Internal server error");
+    }
+  });
+
   // In-memory challenge store (stateless with signed timestamp)
   const challenges = new Map<
     string,
@@ -410,6 +476,26 @@ All errors return JSON with an \`error\` field and optional \`code\`:
   )
     .split(",")
     .map((o) => o.trim());
+
+  // ── HTTP security headers (#564) ─────────────────────────────────────
+  app.use((_req, res, next) => {
+    // Prevent MIME-type sniffing
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    // Disallow framing by other origins
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    // Don't send referrer to cross-origin destinations
+    res.setHeader("Referrer-Policy", "no-referrer");
+    // Disable DNS prefetching
+    res.setHeader("X-DNS-Prefetch-Control", "off");
+    // Enforce HTTPS for 1 year (only meaningful in production behind TLS)
+    res.setHeader(
+      "Strict-Transport-Security",
+      "max-age=31536000; includeSubDomains",
+    );
+    // Allow cross-origin resource loading (e.g. Supabase avatar images)
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    next();
+  });
 
   app.use(
     cors({
@@ -590,7 +676,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
    *                   example: Invalid wallet address
    */
   // Request a challenge nonce for wallet signature
-  v1Router.post("/auth/challenge", (req, res) => {
+  v1Router.post("/auth/challenge", authLimiter, (req, res) => {
     const { walletAddress } = req.body;
 
     if (!walletAddress || !isValidStellarAddress(walletAddress)) {
@@ -638,7 +724,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
    *       401:
    *         description: Invalid signature
    */
-  v1Router.post("/auth/verify", async (req, res) => {
+  v1Router.post("/auth/verify", authLimiter, async (req, res) => {
     const parsed = verifySchema.safeParse(req.body);
     if (!parsed.success) {
       return sendError(res, 400, "Invalid request body");
@@ -1104,6 +1190,9 @@ All errors return JSON with an \`error\` field and optional \`code\`:
    *                   nullable: true
    *                 walletAddress:
    *                   type: string
+   *                 isOwner:
+   *                   type: boolean
+   *                   description: Present on authenticated requests; true when the JWT user owns this profile.
    *                 email:
    *                   type: string
    *                   nullable: true
@@ -1136,6 +1225,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
    *               bio: "Stellar ecosystem builder"
    *               avatarUrl: "https://example.com/avatar.jpg"
    *               walletAddress: "GBZXN7PIRZGNMHGA7MUUUF4GWPY5AYPV6LY4UV2GL6VJGIQRXFDNMADI"
+   *               isOwner: true
    *               email: "john@example.com"
    *               websiteUrl: "https://johndoe.com"
    *               twitterHandle: "johndoe"
@@ -1162,7 +1252,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
    */
   // #463 — view count: increment once per IP per hour via viewCountLimiter
 //   app.get("/profiles/:username", async (req, res) => {
-  v1Router.get("/profiles/:username", async (req, res) => {
+  v1Router.get("/profiles/:username", optionalAuth, async (req, res) => {
     try {
       const profile = await prisma.profile.findUnique({
         where: { username: req.params.username },
@@ -1177,14 +1267,25 @@ All errors return JSON with an \`error\` field and optional \`code\`:
 
       // Attempt to increment view count; viewCountLimiter will skip duplicate
       // IPs within the same hour window (applied as middleware below).
-      void prisma.profile.update({
-        where: { id: profile.id },
-        data: { viewCount: { increment: 1 } },
-      }).catch(() => {
-        // Non-fatal — do not block the response
-      });
+      // Skip increment if the viewer is the profile owner (#542).
+      const isOwner = req.auth?.userId && profile.ownerId === req.auth.userId;
+      if (!isOwner) {
+        void prisma.profile.update({
+          where: { id: profile.id },
+          data: { viewCount: { increment: 1 } },
+        }).catch(() => {
+          // Non-fatal — do not block the response
+        });
+      }
 
-      res.json(profile);
+      const responseBody: Record<string, unknown> = { ...profile };
+      if (req.auth) {
+        responseBody.isOwner = Boolean(
+          req.auth.userId && profile.ownerId === req.auth.userId,
+        );
+      }
+
+      res.json(responseBody);
     } catch (e: unknown) {
       req.log.error({ err: e }, "database error fetching profile");
       return sendError(res, 500, "Internal server error");
@@ -2120,68 +2221,23 @@ All errors return JSON with an \`error\` field and optional \`code\`:
     supporterId: z.string().optional().nullable(),
   });
 
-  const verificationCache = new Map<string, { result: boolean; timestamp: number }>();
-  const VERIFICATION_CACHE_TTL = 60 * 60 * 1000;
-
   async function verifyTransaction(
     txHash: string,
     retries = 3,
     backoffMs = 1000,
-    req?: express.Request
+    req?: express.Request,
+    expected?: ExpectedTxDetails
   ): Promise<boolean | "error"> {
-    const cached = verificationCache.get(txHash);
-    if (cached && Date.now() - cached.timestamp < VERIFICATION_CACHE_TTL) {
-      return cached.result;
-    }
-
-    const verify = async () => {
-      for (let attempt = 1; attempt <= retries; attempt++) {
-        try {
-          const tx = await stellarServer.transactions().transaction(txHash).call();
-          const result = tx.successful === true;
-          
-          if (result) {
-            verificationCache.set(txHash, { result, timestamp: Date.now() });
-          }
-          
-          return result;
-        } catch (e: unknown) {
-          if (
-            e &&
-            typeof e === "object" &&
-            "response" in e &&
-            e.response &&
-            typeof e.response === "object" &&
-            "status" in e.response &&
-            e.response.status === 404
-          ) {
-            return false;
-          }
-
-          if (attempt < retries) {
-            const delay = backoffMs * Math.pow(2, attempt - 1);
-            const log = req?.log ?? logger;
-            log.warn(
-              { txHash, attempt, delay, err: e },
-              "Horizon verification failed, retrying"
-            );
-            await new Promise((resolve) => setTimeout(resolve, delay));
-          } else {
-            throw e;
-          }
-        }
-      }
-      return "error" as const;
-    };
-
     try {
-      return await horizonCircuitBreaker.execute(verify);
+      return await horizonCircuitBreaker.execute(() =>
+        verifyTransactionService(stellarServer, txHash, retries, backoffMs, expected)
+      );
     } catch (e: any) {
       const log = req?.log ?? logger;
       if (e.message === "Circuit breaker is OPEN") {
-        log.warn({ txHash }, "Horizon circuit breaker is OPEN, skipping call");
+        log.warn({ txHash }, "Horizon circuit breaker is OPEN, skipping verification");
       } else {
-        log.error({ txHash, err: e }, "Horizon error verifying transaction after retries");
+        log.error({ txHash, err: e }, "Horizon error verifying transaction");
       }
       return "error";
     }
@@ -2240,6 +2296,11 @@ All errors return JSON with an \`error\` field and optional \`code\`:
    *           enum: [date, amount]
    *           default: date
    *         description: Sort transactions by date (newest first) or amount (highest first)
+   *       - in: query
+   *         name: q
+   *         schema:
+   *           type: string
+   *         description: Text search filter — returns only transactions whose message contains this string (case-insensitive, max 100 chars)
    *     responses:
    *       200:
    *         description: Paginated list of transactions
@@ -2326,6 +2387,8 @@ All errors return JSON with an \`error\` field and optional \`code\`:
     const network = req.query.network as string | undefined;
     const status = req.query.status as string | undefined;
     const assetCode = req.query.assetCode as string | undefined;
+    const rawQ = req.query.q as string | undefined;
+    const q = rawQ?.trim().slice(0, 100) || undefined;
 
     // Validate sortBy — only "date" and "amount" are accepted
     const rawSortBy = req.query.sortBy as string | undefined;
@@ -2347,6 +2410,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
       ...(network ? { stellarNetwork: network } : {}),
       ...(status ? { status } : {}),
       ...(assetCode ? { assetCode } : {}),
+      ...(q ? { message: { contains: q, mode: "insensitive" as const } } : {}),
     };
 
     // Sort by date (newest first) or amount (highest first)
@@ -2365,7 +2429,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
       prisma.supportTransaction.count({ where }),
     ]);
 
-    res.json({ transactions, total, limit, offset, sortBy });
+    res.json({ transactions, total, limit, offset, sortBy, ...(q ? { q } : {}) });
   });
 
   // ── Export transactions for tax reporting ──────────────────────────────
@@ -2859,13 +2923,21 @@ All errors return JSON with an \`error\` field and optional \`code\`:
         return res.status(400).json({ error: flat });
       }
 
-      const verification = await verifyTransaction(parsed.data.txHash, 3, 1000, req);
+      const expectedDetails: ExpectedTxDetails = {
+        amount: parsed.data.amount,
+        recipientAddress: parsed.data.recipientAddress,
+        assetCode: parsed.data.assetCode,
+        assetIssuer: parsed.data.assetIssuer,
+      };
+
+      const verification = await verifyTransaction(parsed.data.txHash, 3, 1000, req, expectedDetails);
 
       if (verification === false) {
         return res
           .status(422)
           .json({
-            error: "Transaction hash not found or not successful on Horizon.",
+            error:
+              "Transaction not found, not successful, or payment details (amount/recipient/asset) do not match.",
           });
       }
 
@@ -2978,29 +3050,35 @@ All errors return JSON with an \`error\` field and optional \`code\`:
           });
 
           for (const webhook of webhooks) {
-            const payload = JSON.stringify({
+            const payload = {
               event: "support.received",
+              id: supportRecord.id,
               txHash: supportRecord.txHash,
               amount: supportRecord.amount.toString(),
               assetCode: supportRecord.assetCode,
+              assetIssuer: supportRecord.assetIssuer ?? null,
+              status: supportRecord.status,
               message: supportRecord.message ?? null,
               memo: supportRecord.memo ?? null,
+              supporterAddress: supportRecord.supporterAddress ?? null,
+              recipientAddress: supportRecord.recipientAddress,
+              profileId: supportRecord.profileId,
               profileUsername: webhook.profile.username,
               createdAt: supportRecord.createdAt.toISOString(),
-            });
-
-            const signature = generateSignature(webhook.secret, JSON.parse(payload));
+            };
 
             // Persist for background delivery with exponential backoff (#webhook-persistence)
             await prisma.webhookDelivery.create({
               data: {
                 webhookId: webhook.id,
                 eventType: "support.received",
-                payload: JSON.parse(payload),
+                payload,
                 status: "pending",
               },
             });
           }
+
+          await processPendingWebhookDeliveries();
         } catch (err) {
           logger.error(
             { err, txHash: supportRecord.txHash },
@@ -3008,6 +3086,14 @@ All errors return JSON with an \`error\` field and optional \`code\`:
           );
         }
       })();
+
+      // Auto-award badges (fire-and-forget, never blocks the response) (#545)
+      checkAndAwardBadges(supportRecord.profileId).catch((err) => {
+        logger.error(
+          { err, txHash: supportRecord.txHash },
+          "Error in checkAndAwardBadges",
+        );
+      });
 
       req.log.info(
         { txHash: supportRecord.txHash },
@@ -3329,7 +3415,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
    *       500:
    *         description: Internal server error
    */
-  app.get("/badges", async (req, res) => {
+  v1Router.get("/badges", async (req, res) => {
     try {
       const badges = await prisma.badge.findMany({
         orderBy: { createdAt: "asc" },
@@ -3385,7 +3471,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
 
   const ADMIN_WALLET = process.env.ADMIN_WALLET_ADDRESS ?? "";
 
-  app.post("/profiles/:username/badges", requireAuth, async (req, res) => {
+  v1Router.post("/profiles/:username/badges", requireAuth, async (req, res) => {
     // Admin-only: only the configured admin wallet may assign badges
     if (!req.auth || !ADMIN_WALLET || req.auth.walletAddress !== ADMIN_WALLET) {
       return sendError(res, 403, "Forbidden: Admin access required");
@@ -3421,26 +3507,9 @@ All errors return JSON with an \`error\` field and optional \`code\`:
     }
   });
 
-  /**
-   * @openapi
-   * /profiles/{username}/badges:
-   *   get:
-   *     summary: Get badges for a profile
-   *     parameters:
-   *       - in: path
-   *         name: username
-   *         required: true
-   *         schema:
-   *           type: string
-   *     responses:
-   *       200:
-   *         description: List of badges for the profile
-   *       404:
-   *         description: Profile not found
-   *       500:
-   *         description: Internal server error
-   */
-  app.get("/profiles/:username/badges", async (req, res) => {
+  // ── Profile Badges ─────────────────────────────────────────────────────
+
+  v1Router.get("/profiles/:username/badges", async (req, res) => {
     try {
       const profile = await prisma.profile.findUnique({
         where: { username: req.params.username },
@@ -3741,13 +3810,51 @@ All errors return JSON with an \`error\` field and optional \`code\`:
     const user = await prisma.user.findFirst({ where: { email: req.auth!.walletAddress } });
     if (!user) return sendError(res, 401, "User not found");
 
+    const { profileId } = req.query as { profileId?: string };
+
+    if (profileId) {
+      // Creator view — return drips for this profile if caller owns it
+      const profile = await prisma.profile.findUnique({ where: { id: profileId } });
+      if (!profile) return sendError(res, 404, "Profile not found");
+      if (profile.walletAddress !== req.auth!.walletAddress) return sendError(res, 403, "Forbidden");
+
+      const subscriptions = await prisma.recurringSupport.findMany({
+        where: { profileId, status: { not: "cancelled" } },
+        include: { supporter: { select: { email: true } } },
+        orderBy: { createdAt: "desc" },
+      });
+
+      return res.json(subscriptions.map((s) => ({
+        id: s.id,
+        supporterAddress: s.supporter.email,
+        amount: s.amount.toString(),
+        assetCode: s.assetCode,
+        frequency: s.frequency,
+        nextRunAt: s.nextRunAt,
+        status: s.status,
+        createdAt: s.createdAt,
+      })));
+    }
+
+    // Supporter view — return the authenticated user's own drip subscriptions
     const subscriptions = await prisma.recurringSupport.findMany({
       where: { supporterId: user.id, status: { not: "cancelled" } },
       include: { profile: { select: { username: true, displayName: true } } },
       orderBy: { createdAt: "desc" },
     });
 
-    return res.json(subscriptions);
+    return res.json(subscriptions.map((s) => ({
+      id: s.id,
+      profileId: s.profileId,
+      profileUsername: s.profile.username,
+      profileDisplayName: s.profile.displayName,
+      amount: s.amount.toString(),
+      assetCode: s.assetCode,
+      frequency: s.frequency,
+      nextRunAt: s.nextRunAt,
+      status: s.status,
+      createdAt: s.createdAt,
+    })));
   });
 
   const patchRecurringSupportSchema = z.object({
@@ -4026,6 +4133,104 @@ All errors return JSON with an \`error\` field and optional \`code\`:
     }));
 
     return res.json({ breakdown, total: Number(total.toFixed(7)) });
+  });
+
+  // ── Stellar Federation endpoint ───────────────────────────────────────
+  // Required by the Stellar federation protocol so wallets can resolve
+  // <username>*novasupport.xyz into a Stellar account ID.
+  // Spec: https://developers.stellar.org/docs/learn/encyclopedia/network-configuration/federation
+  /**
+   * @openapi
+   * /federation:
+   *   get:
+   *     summary: Stellar federation address resolution
+   *     description: |
+   *       Resolves a Stellar federation address (e.g. alice*novasupport.xyz) to a
+   *       Stellar account ID. Called by wallets and the Stellar network.
+   *       Access-Control-Allow-Origin is set to * as required by the Stellar spec.
+   *     parameters:
+   *       - in: query
+   *         name: q
+   *         required: true
+   *         schema:
+   *           type: string
+   *           example: alice*novasupport.xyz
+   *         description: The federation address to resolve
+   *       - in: query
+   *         name: type
+   *         schema:
+   *           type: string
+   *           example: name
+   *         description: Lookup type — always "name" for forward lookups
+   *     responses:
+   *       200:
+   *         description: Resolved federation address
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 stellar_address:
+   *                   type: string
+   *                   example: alice*novasupport.xyz
+   *                 account_id:
+   *                   type: string
+   *                   example: GABC...XYZ
+   *       400:
+   *         description: Missing or invalid federation address
+   *       404:
+   *         description: No profile found for that username
+   */
+  app.get("/federation", async (req, res) => {
+    // Stellar spec requires CORS open to all origins on this endpoint
+    res.setHeader("Access-Control-Allow-Origin", "*");
+
+    const q = getQueryString(req.query.q);
+
+    if (!q) {
+      return sendError(res, 400, "Missing required parameter: q", "MISSING_PARAMETER");
+    }
+
+    // Only handle forward lookups for this domain
+    const FEDERATION_DOMAIN = process.env.FEDERATION_DOMAIN ?? "novasupport.xyz";
+    const suffix = `*${FEDERATION_DOMAIN}`;
+
+    if (!q.endsWith(suffix)) {
+      return sendError(
+        res,
+        400,
+        `Federation address must end with ${suffix}`,
+        "INVALID_FEDERATION_ADDRESS",
+      );
+    }
+
+    const username = q.slice(0, q.length - suffix.length);
+
+    if (!username) {
+      return sendError(res, 400, "Invalid federation address: missing username", "INVALID_FEDERATION_ADDRESS");
+    }
+
+    try {
+      const profile = await prisma.profile.findUnique({
+        where: { username },
+        select: { walletAddress: true },
+      });
+
+      if (!profile) {
+        return res.status(404).json({
+          code: "not_found",
+          message: "No profile found for that username",
+        });
+      }
+
+      return res.json({
+        stellar_address: q,
+        account_id: profile.walletAddress,
+      });
+    } catch (e: unknown) {
+      req.log.error({ err: e }, "database error in federation lookup");
+      return sendError(res, 500, "Internal server error");
+    }
   });
 
   // ── Mount v1 router ───────────────────────────────────────────────────
