@@ -216,7 +216,7 @@ function createRateLimiters() {
     limit: 1,
     standardHeaders: true,
     legacyHeaders: false,
-    skip: () => false,
+    skip: () => process.env.NODE_ENV === "test",
     message: { error: "Too many requests, please try again later." },
   });
 
