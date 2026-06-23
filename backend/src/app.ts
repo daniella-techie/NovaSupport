@@ -3392,10 +3392,14 @@ All errors return JSON with an \`error\` field and optional \`code\`:
         return sendError(res, 403, "Forbidden: You do not own this profile");
       }
 
+      if (!req.file) {
+        return sendError(res, 400, "No file attached — include an 'avatar' field in the multipart body");
+      }
+
       const path = `avatars/${username}`;
       const { error: uploadError } = await supabaseClient.storage
         .from(bucket)
-        .upload(path, req.file!.buffer, { upsert: true });
+        .upload(path, req.file.buffer, { upsert: true });
 
       if (uploadError) {
         req.log.error({ err: uploadError }, "supabase storage upload failed");
@@ -3787,18 +3791,30 @@ All errors return JSON with an \`error\` field and optional \`code\`:
 
   // ── Recurring Support ───────────────────────────────────────────────────
 
+  const recurringSchema = z.object({
+    profileId:  z.string().min(1),
+    amount:     z.string().regex(/^\d+(\.\d{1,7})?$/, "amount must be a positive decimal with up to 7 decimal places").refine(v => parseFloat(v) > 0, "amount must be greater than zero"),
+    assetCode:  z.string().min(1).max(12).optional().default("XLM"),
+    frequency:  z.enum(["weekly", "monthly"]),
+  });
+
   v1Router.post("/recurring-support", requireAuth, writeLimiter, async (req, res) => {
-    const { profileId, amount, assetCode, frequency } = req.body;
-
-    if (!profileId || !amount || !frequency) {
-      return sendError(res, 400, "profileId, amount, and frequency are required");
+    const parsed = recurringSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return sendError(res, 400, parsed.error.issues.map(i => i.message).join("; "));
     }
-    if (frequency !== "weekly" && frequency !== "monthly") {
-      return sendError(res, 400, "frequency must be 'weekly' or 'monthly'");
-    }
+    const { profileId, amount, assetCode, frequency } = parsed.data;
 
-    const profile = await prisma.profile.findUnique({ where: { id: profileId } });
+    const profile = await prisma.profile.findUnique({
+      where: { id: profileId },
+      include: { acceptedAssets: true },
+    });
     if (!profile) return sendError(res, 404, "Profile not found");
+
+    const acceptedCodes = profile.acceptedAssets.map((a: { code: string }) => a.code);
+    if (acceptedCodes.length > 0 && !acceptedCodes.includes(assetCode)) {
+      return sendError(res, 400, `Asset '${assetCode}' is not accepted by this profile. Accepted: ${acceptedCodes.join(", ")}`);
+    }
 
     const user = await prisma.user.findFirst({ where: { email: req.auth!.walletAddress } });
     if (!user) return sendError(res, 401, "User not found");
@@ -3815,7 +3831,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
         supporterId: user.id,
         profileId,
         amount,
-        assetCode: assetCode ?? "XLM",
+        assetCode,
         frequency,
         nextRunAt,
       },
