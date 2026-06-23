@@ -311,29 +311,27 @@ export class EventIndexer {
 
   private async tick(): Promise<void> {
     if (this.stopped) return;
+    // Process exactly one page per tick so the event loop is never blocked by a
+    // massive backfill. When more pages are available we reschedule with a 0 ms
+    // delay (fast drain) rather than holding all pages in memory simultaneously.
+    let delay = this.pollIntervalMs;
     try {
-      let totalIngested = 0;
-      let pages = 0;
-      // Drain multiple pages per tick so large event histories (backfill)
-      // are processed quickly rather than one page every pollIntervalMs.
-      while (pages < this.maxPagesPerTick) {
-        const { ingested, nextCursor } = await this.pollOnce();
-        totalIngested += ingested;
-        pages++;
-        if (ingested === 0 || nextCursor === null) break;
-      }
-      if (totalIngested > 0) {
+      const { ingested, nextCursor } = await this.pollOnce();
+      if (ingested > 0) {
         logger.info(
-          { ingested: totalIngested, pages, contractId: this.contractId },
+          { ingested, contractId: this.contractId },
           "indexed events",
         );
-        // Resolve orphaned transactions after ingesting new events
         await this.resolveOrphans().catch((err) => {
           logger.warn({ err }, "orphan resolution failed — will retry next tick");
         });
+        // More pages available — re-enter immediately but yield to the event loop.
+        if (nextCursor !== null) delay = 0;
       }
+    } catch (err) {
+      logger.error({ err }, "event indexer tick failed");
     } finally {
-      this.scheduleNextTick(this.pollIntervalMs);
+      this.scheduleNextTick(delay);
     }
   }
 }

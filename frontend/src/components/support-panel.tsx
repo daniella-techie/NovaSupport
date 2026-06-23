@@ -7,6 +7,8 @@ import {
   BASE_FEE,
   Horizon,
   TransactionBuilder,
+  Transaction,
+  FeeBumpTransaction,
 } from "@stellar/stellar-sdk";
 import {
   buildSupportIntent,
@@ -71,6 +73,9 @@ export function SupportPanel({
   const [message, setMessage] = useState("");
   const [isRecurring, setIsRecurring] = useState(false);
   const [frequency, setFrequency] = useState<"weekly" | "monthly">("monthly");
+  const [sending, setSending] = useState(false);
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   const handleCopy = useCallback(async () => {
     try {
@@ -88,6 +93,76 @@ export function SupportPanel({
       handleCopy();
     }
   }, [handleCopy]);
+
+  const handleSend = useCallback(async () => {
+    const parsedAmt = parseFloat(amount);
+    const validAmount = !isNaN(parsedAmt) && parsedAmt > 0;
+    const parsedBal = balance ? parseFloat(balance) : 0;
+    const overBalance = validAmount && parsedAmt + FEE_IN_XLM > parsedBal;
+    if (!visitorAddress || !validAmount || overBalance || sending) return;
+
+    const walletId = (typeof localStorage !== "undefined" ? localStorage.getItem("walletId") : null) as WalletId | null;
+    const adapter = walletId ? getWalletAdapter(walletId) : null;
+    if (!adapter) {
+      showToast("Wallet not connected — please reconnect and try again.", "error");
+      return;
+    }
+
+    setSending(true);
+    try {
+      let xdr: string;
+      const isPathPayment = paymentAsset.code !== "XLM";
+      if (isPathPayment) {
+        const srcAsset = paymentAsset.issuer
+          ? new StellarAsset(paymentAsset.code, paymentAsset.issuer)
+          : StellarAsset.native();
+        xdr = await buildPathPaymentIntent({
+          sourceAccount: visitorAddress,
+          sourceAsset: srcAsset,
+          sourceAmount: amount,
+          destAsset: StellarAsset.native(),
+          destAddress: walletAddress,
+          memo: message || undefined,
+        });
+      } else {
+        xdr = await buildSupportIntent({
+          sourceAccount: visitorAddress,
+          destination: walletAddress,
+          amount,
+          assetCode: paymentAsset.code,
+          assetIssuer: paymentAsset.issuer,
+          memo: message || undefined,
+        });
+      }
+
+      const signedXdr = await adapter.signTransaction(xdr, {
+        networkPassphrase: stellarConfig.networkPassphrase,
+        address: visitorAddress,
+      });
+
+      const tx = TransactionBuilder.fromXDR(signedXdr, stellarConfig.networkPassphrase) as Transaction | FeeBumpTransaction;
+      const result = await horizonServer.submitTransaction(tx);
+      setTxHash(result.hash);
+
+      if (isRecurring && profileId) {
+        await fetch(`${API_BASE_URL}/api/v1/recurring-support`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ profileId, amount, assetCode: paymentAsset.code, frequency }),
+        }).catch(() => {
+          // Non-critical — recurring registration failure doesn't affect the payment.
+        });
+      }
+    } catch (err: unknown) {
+      showToast(mapWalletError(err), "error");
+    } finally {
+      setSending(false);
+    }
+  }, [
+    visitorAddress, amount, balance, sending,
+    paymentAsset, walletAddress, message, isRecurring, profileId, frequency,
+    showToast,
+  ]);
 
   const loadBalance = async (address: string) => {
     if (!address) return;
@@ -497,16 +572,27 @@ export function SupportPanel({
 
       <button
         type="button"
-        disabled={!hasValidAmount || insufficientBalance}
+        onClick={handleSend}
+        disabled={!hasValidAmount || insufficientBalance || sending}
         className="mt-6 w-full rounded-lg bg-mint px-4 py-3 text-sm font-semibold text-black hover:bg-mint/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
       >
-        Send Support
+        {sending ? "Sending…" : "Send Support"}
       </button>
 
       <p className="mt-4 text-xs leading-6 text-steel">
         This builds and signs a Stellar payment using Freighter.
         The transaction hash is stored on the NovaSupport backend.
       </p>
+
+      <TransactionResultModal
+        txHash={txHash}
+        amount={amount}
+        assetCode={paymentAsset.code || "XLM"}
+        recipientDisplayName={recipientDisplayName}
+        note={message || null}
+        isOpen={txHash !== null}
+        onClose={() => setTxHash(null)}
+      />
     </section>
   );
 }
