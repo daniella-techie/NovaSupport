@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Check } from "lucide-react";
+import { apiFetch } from "@/lib/api-client";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
@@ -35,12 +36,8 @@ export function NotificationPreferences({ username }: Props) {
     }
 
     Promise.all([
-      fetch(`${API_BASE_URL}/profiles/${username}/notification-preferences`, {
-        headers: { Authorization: `Bearer ${token}` },
-      }),
-      fetch(`${API_BASE_URL}/profiles/${username}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      }),
+      apiFetch(`${API_BASE_URL}/profiles/${username}/notification-preferences`),
+      apiFetch(`${API_BASE_URL}/profiles/${username}`),
     ])
       .then(([prefsRes, profileRes]) =>
         Promise.all([
@@ -64,15 +61,11 @@ export function NotificationPreferences({ username }: Props) {
       setError(null);
 
       try {
-        const token = localStorage.getItem("authToken");
-        const res = await fetch(
+        const res = await apiFetch(
           `${API_BASE_URL}/profiles/${username}/notification-preferences`,
           {
             method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ [key]: newValue }),
           },
         );

@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { API_BASE_URL } from "@/lib/config";
+import { apiFetch } from "@/lib/api-client";
 import { stellarExpertUrl } from "@/lib/stellar";
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -444,14 +445,11 @@ export default function DashboardPage() {
     async function fetchDrips() {
       setDripsLoading(true);
       try {
-        const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
         const endpoint = isOwner
           ? `${API_BASE_URL}/recurring-support?profileId=${campaignId}`
           : `${API_BASE_URL}/recurring-support`;
 
-        const res = await fetch(endpoint, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
+        const res = await apiFetch(endpoint);
 
         if (!cancelled) {
           if (res.ok) {
@@ -476,13 +474,9 @@ export default function DashboardPage() {
   async function handleDripAction(id: string, action: "paused" | "cancelled") {
     setDripActionLoading(id);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
-      const res = await fetch(`${API_BASE_URL}/recurring-support/${id}`, {
+      const res = await apiFetch(`${API_BASE_URL}/recurring-support/${id}`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: action }),
       });
       if (res.ok) {
@@ -546,12 +540,8 @@ export default function DashboardPage() {
     setResendingVerification(true);
     setVerificationBannerMsg(null);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
-      const res = await fetch(`${API_BASE_URL}/profiles/${campaignId}/resend-verification-email`, {
+      const res = await apiFetch(`${API_BASE_URL}/profiles/${campaignId}/resend-verification-email`, {
         method: "POST",
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
       });
       const json = await res.json().catch(() => ({})) as Record<string, unknown>;
       if (res.ok) {

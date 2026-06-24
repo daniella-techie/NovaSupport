@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { formatRateLimitedMessage, parseRateLimitInfo } from "@/lib/rate-limit";
+import { apiFetch } from "@/lib/api-client";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
@@ -309,12 +310,7 @@ export default function DashboardPage() {
     if (!username) return;
     setCsvLoading(true);
     try {
-      const token = localStorage.getItem("authToken");
-      const res = await fetch(`${API_BASE_URL}/profiles/${username}/transactions/export`, {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
+      const res = await apiFetch(`${API_BASE_URL}/profiles/${username}/transactions/export`);
 
       if (!res.ok) {
         throw new Error("Failed to download CSV");
