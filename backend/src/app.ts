@@ -964,31 +964,37 @@ All errors return JSON with an \`error\` field and optional \`code\`:
         });
       }
 
-      // Default sorting by newest
+      // Default sorting by newest.
+      // When an asset filter is supplied, push it into the DB query so that
+      // `total` reflects the actual matched count rather than the page-slice
+      // size returned by an in-memory filter (#602).
+      const assetWhere = asset
+        ? {
+            acceptedAssets: {
+              some: {
+                code: asset,
+                ...(assetIssuer !== "" ? { issuer: assetIssuer } : {}),
+              },
+            },
+          }
+        : {};
+
+      const combinedWhere = { ...where, ...assetWhere };
+
       const [profiles, total] = await Promise.all([
         prisma.profile.findMany({
-          where,
+          where: combinedWhere,
           take: limit,
           skip: offset,
           orderBy,
           include: { acceptedAssets: true },
         }),
-        prisma.profile.count({ where }),
+        prisma.profile.count({ where: combinedWhere }),
       ]);
 
-      const filtered = asset
-        ? profiles.filter((p: any) =>
-            p.acceptedAssets.some(
-              (a: any) =>
-                a.code === asset &&
-                (assetIssuer === "" || a.issuer === assetIssuer),
-            ),
-          )
-        : profiles;
-
       res.json({
-        profiles: filtered,
-        total: asset ? filtered.length : total,
+        profiles,
+        total,
         limit,
         offset,
       });
@@ -1828,7 +1834,12 @@ All errors return JSON with an \`error\` field and optional \`code\`:
         return res.json(updated);
       } catch (e: unknown) {
         if (e && typeof e === "object" && "code" in e && e.code === "P2002") {
-          return sendError(res, 409, "Email already in use", "EMAIL_TAKEN");
+          // Inspect meta.target to tell the caller which unique field is taken.
+          // The creation endpoint uses the same pattern so clients receive a
+          // consistent error shape across both operations (#603).
+          const meta = (e as { meta?: { target?: string[] } }).meta;
+          const field = meta?.target?.includes("email") ? "Email" : "Username";
+          return sendError(res, 409, `${field} already taken`, `${field.toUpperCase()}_TAKEN`);
         }
         req.log.error({ err: e }, "database error updating profile");
         return sendError(res, 500, "Internal server error");
