@@ -5,6 +5,7 @@ import type {
   RpcEventPage,
   SupportEventRecord,
 } from "./event-indexer.js";
+import { logger } from "../logger.js";
 
 type RpcEvent = {
   ledger: number;
@@ -54,28 +55,57 @@ function toNumber(value: unknown): number {
 function decodeSupportEvent(event: RpcEvent): SupportEventRecord | null {
   if (!event.topic.length) return null;
 
-  const native = scValToNative(xdr.ScVal.fromXDR(event.value, "base64")) as
-    | Record<string, unknown>
-    | unknown[];
+  let native: unknown;
+  try {
+    native = scValToNative(xdr.ScVal.fromXDR(event.value, "base64"));
+  } catch (err) {
+    logger.warn({
+      msg: "Malformed support event payload discarded (XDR decode error)",
+      ledger: event.ledger,
+      contractId: event.contractId,
+      txHash: event.txHash,
+      err
+    });
+    return null;
+  }
 
-  if (!native || Array.isArray(native)) return null;
+  if (!native || Array.isArray(native) || typeof native !== "object") {
+    logger.warn({
+      msg: "Malformed support event payload discarded (not an object)",
+      ledger: event.ledger,
+      contractId: event.contractId,
+      txHash: event.txHash,
+      native
+    });
+    return null;
+  }
 
-  const supporter = native.supporter;
-  const recipient = native.recipient;
+  const nativeObj = native as Record<string, unknown>;
+  const supporter = nativeObj.supporter;
+  const recipient = nativeObj.recipient;
 
-  if (!supporter || !recipient) return null;
+  if (!supporter || !recipient) {
+    logger.warn({
+      msg: "Malformed support event payload discarded (missing supporter or recipient)",
+      ledger: event.ledger,
+      contractId: event.contractId,
+      txHash: event.txHash,
+      native: nativeObj
+    });
+    return null;
+  }
 
   return {
     txHash: event.txHash,
     ledger: event.ledger,
     pagingToken: event.pagingToken ?? event.id,
-    amount: String(native.amount ?? "0"),
-    assetCode: String(native.asset_code ?? native.assetCode ?? ""),
+    amount: String(nativeObj.amount ?? "0"),
+    assetCode: String(nativeObj.asset_code ?? nativeObj.assetCode ?? ""),
     assetIssuer: null,
     recipientAddress: asAddress(recipient),
     supporterAddress: asAddress(supporter),
-    message: native.message == null ? null : String(native.message),
-    emittedAt: new Date(toNumber(native.timestamp) * 1000),
+    message: nativeObj.message == null ? null : String(nativeObj.message),
+    emittedAt: new Date(toNumber(nativeObj.timestamp) * 1000),
   };
 }
 

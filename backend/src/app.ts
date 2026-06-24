@@ -3594,6 +3594,46 @@ All errors return JSON with an \`error\` field and optional \`code\`:
     }
   });
 
+  // ── Webhooks Admin ─────────────────────────────────────────────────────
+
+  /**
+   * @openapi
+   * /admin/webhooks/requeue:
+   *   post:
+   *     summary: Requeue permanently failed webhook deliveries (admin only)
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: Number of webhooks requeued
+   *       403:
+   *         description: Admin access required
+   *       500:
+   *         description: Internal server error
+   */
+  v1Router.post("/admin/webhooks/requeue", requireAuth, async (req, res) => {
+    if (!req.auth || !ADMIN_WALLET || req.auth.walletAddress !== ADMIN_WALLET) {
+      return sendError(res, 403, "Forbidden: Admin access required");
+    }
+
+    try {
+      const result = await prisma.webhookDelivery.updateMany({
+        where: { status: "failed" },
+        data: {
+          status: "pending",
+          attemptCount: 0,
+          nextRetryAt: new Date(),
+        },
+      });
+
+      req.log.info({ count: result.count }, "requeued failed webhooks");
+      return res.json({ count: result.count });
+    } catch (e: unknown) {
+      req.log.error({ err: e }, "database error requeuing webhooks");
+      return sendError(res, 500, "Internal server error");
+    }
+  });
+
   // ── Profile Badges ─────────────────────────────────────────────────────
 
   v1Router.get("/profiles/:username/badges", async (req, res) => {
@@ -4354,7 +4394,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
   // Must be registered after all routes and before any other error handlers
   if (process.env.SENTRY_DSN) {
     app.use(Sentry.expressErrorHandler({
-      shouldHandleError(error) {
+      shouldHandleError(_error: Error) {
         // Capture 4xx client errors as well as 5xx server errors
         return true;
       },

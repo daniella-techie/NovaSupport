@@ -11,74 +11,85 @@ function getBadgeNameByCriterion(criterion: string): string {
   return map[criterion] ?? "";
 }
 
+const pendingChecks = new Set<string>();
+
 export async function checkAndAwardBadges(profileId: string): Promise<void> {
-  try {
-    const badges = await prisma.badge.findMany();
-    if (badges.length === 0) return;
+  if (pendingChecks.has(profileId)) return;
+  pendingChecks.add(profileId);
 
-    const existingAwards = await prisma.profileBadge.findMany({
-      where: { profileId },
-      select: { badgeId: true },
-    });
-    const awardedBadgeIds = new Set(existingAwards.map((a) => a.badgeId));
+  setTimeout(async () => {
+    try {
+      const badges = await prisma.badge.findMany();
+      if (badges.length === 0) return;
 
-    const [txCount, uniqueSupporters, totalsByAsset, milestonesReached] = await Promise.all([
-      prisma.supportTransaction.count({
-        where: { profileId, status: { not: "failed" } },
-      }),
-      prisma.supportTransaction.findMany({
-        where: { profileId, supporterAddress: { not: null }, status: { not: "failed" } },
-        distinct: ["supporterAddress"],
-        select: { supporterAddress: true },
-      }),
-      prisma.supportTransaction.groupBy({
-        by: ["assetCode"],
-        where: { profileId, status: { not: "failed" } },
-        _sum: { amount: true },
-      }),
-      prisma.milestone.count({
-        where: { profileId, status: "reached" },
-      }),
-    ]);
+      const existingAwards = await prisma.profileBadge.findMany({
+        where: { profileId },
+        select: { badgeId: true },
+      });
+      const awardedBadgeIds = new Set(existingAwards.map((a) => a.badgeId));
 
-    const xlmTotal = totalsByAsset
-      .filter((g) => g.assetCode === "XLM")
-      .reduce((sum, g) => sum + Number(g._sum.amount ?? 0), 0);
+      if (awardedBadgeIds.size === badges.length) return;
 
-    for (const badge of badges) {
-      if (awardedBadgeIds.has(badge.id)) continue;
+      const [txCount, uniqueSupporters, totalsByAsset, milestonesReached] = await Promise.all([
+        prisma.supportTransaction.count({
+          where: { profileId, status: { not: "failed" } },
+        }),
+        prisma.supportTransaction.findMany({
+          where: { profileId, supporterAddress: { not: null }, status: { not: "failed" } },
+          distinct: ["supporterAddress"],
+          select: { supporterAddress: true },
+        }),
+        prisma.supportTransaction.groupBy({
+          by: ["assetCode"],
+          where: { profileId, status: { not: "failed" } },
+          _sum: { amount: true },
+        }),
+        prisma.milestone.count({
+          where: { profileId, status: "reached" },
+        }),
+      ]);
 
-      let shouldAward = false;
+      const xlmTotal = totalsByAsset
+        .filter((g) => g.assetCode === "XLM")
+        .reduce((sum, g) => sum + Number(g._sum.amount ?? 0), 0);
 
-      switch (badge.criteria) {
-        case "first_support":
-          shouldAward = txCount >= 1;
-          break;
-        case "ten_supporters":
-          shouldAward = uniqueSupporters.length >= 10;
-          break;
-        case "total_100_xlm":
-          shouldAward = xlmTotal >= 100;
-          break;
-        case "milestone_reached":
-          shouldAward = milestonesReached >= 1;
-          break;
+      for (const badge of badges) {
+        if (awardedBadgeIds.has(badge.id)) continue;
+
+        let shouldAward = false;
+
+        switch (badge.criteria) {
+          case "first_support":
+            shouldAward = txCount >= 1;
+            break;
+          case "ten_supporters":
+            shouldAward = uniqueSupporters.length >= 10;
+            break;
+          case "total_100_xlm":
+            shouldAward = xlmTotal >= 100;
+            break;
+          case "milestone_reached":
+            shouldAward = milestonesReached >= 1;
+            break;
+        }
+
+        if (shouldAward) {
+          await prisma.profileBadge.create({
+            data: { profileId, badgeId: badge.id },
+          });
+          logger.info(
+            { profileId, badgeName: badge.name },
+            "Badge auto-awarded",
+          );
+        }
       }
-
-      if (shouldAward) {
-        await prisma.profileBadge.create({
-          data: { profileId, badgeId: badge.id },
-        });
-        logger.info(
-          { profileId, badgeName: badge.name },
-          "Badge auto-awarded",
-        );
-      }
+    } catch (err) {
+      logger.error(
+        { err, profileId },
+        "Error in checkAndAwardBadges",
+      );
+    } finally {
+      pendingChecks.delete(profileId);
     }
-  } catch (err) {
-    logger.error(
-      { err, profileId },
-      "Error in checkAndAwardBadges",
-    );
-  }
+  }, 5000);
 }

@@ -326,13 +326,14 @@ export class EventIndexer {
           { ingested, contractId: this.contractId },
           "indexed events",
         );
-        await this.resolveOrphans().catch((err) => {
-          Metrics.eventIndexerErrors();
-          logger.warn({ err }, "orphan resolution failed — will retry next tick");
-        });
         // More pages available — re-enter immediately but yield to the event loop.
         if (nextCursor !== null) delay = 0;
       }
+
+      await this.resolveOrphans().catch((err) => {
+        Metrics.eventIndexerErrors();
+        logger.error({ err }, "orphan resolution failed — operator intervention required");
+      });
     } catch (err) {
       Metrics.eventIndexerErrors();
       logger.error({ err }, "event indexer tick failed");
