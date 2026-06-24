@@ -97,7 +97,17 @@ function normalizeUrl(value: string): { url: string | null; violations: string[]
   try {
     // Add protocol if missing, but validate the original format first
     let urlString = value;
-    
+
+    // Block non-http(s) schemes that may not contain "://" (e.g. javascript:, data:)
+    const colonIdx = value.indexOf(":");
+    if (colonIdx !== -1) {
+      const scheme = value.slice(0, colonIdx).toLowerCase().trim();
+      if (scheme !== "http" && scheme !== "https" && !/^\s*$/.test(scheme)) {
+        violations.push("Only HTTP and HTTPS protocols are allowed");
+        return { url: null, violations };
+      }
+    }
+
     // Check for invalid protocols in the original string
     if (value.includes("://")) {
       const protocol = value.split("://")[0].toLowerCase();
@@ -105,7 +115,7 @@ function normalizeUrl(value: string): { url: string | null; violations: string[]
         violations.push("Only HTTP and HTTPS protocols are allowed");
         return { url: null, violations };
       }
-    } else {
+    } else if (colonIdx === -1) {
       // Add https if no protocol
       urlString = `https://${urlString}`;
     }
@@ -138,10 +148,8 @@ function normalizeUrl(value: string): { url: string | null; violations: string[]
       return { url: null, violations };
     }
 
-    // url.href adds a trailing slash to bare origins (e.g. "https://stellar.example/").
-    // Strip it only when the original had no path and no trailing slash.
-    const href = url.pathname === "/" && !value.endsWith("/") ? url.href.slice(0, -1) : url.href;
-    return { url: href, violations };
+    // Always return the canonical href (with trailing slash for bare origins).
+    return { url: url.href, violations };
   } catch (error) {
     violations.push("Invalid URL format");
     return { url: null, violations };
@@ -330,6 +338,13 @@ export function sanitizeObject(
   if (Array.isArray(obj)) {
     let changed = false;
     const result = obj.map((item, index) => {
+      if (typeof item === "string") {
+        // Use a generic key so HTML sanitization still applies
+        const { result: r, changed: c, violations } = sanitizeString("message", item);
+        if (c) changed = true;
+        allViolations.push(...violations.map(v => `[${index}] ${v}`));
+        return r;
+      }
       const { result: r, changed: c, violations } = sanitizeObject(item, depth + 1);
       if (c) changed = true;
       allViolations.push(...violations.map(v => `[${index}] ${v}`));

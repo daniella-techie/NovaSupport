@@ -44,7 +44,7 @@ function buildPrismaMock(overrides: {
   recurringSupports?: unknown[];
 } = {}) {
   const txRecurringSupportUpdate = mock.fn(() => Promise.resolve({}));
-  const txSupportTransactionCreate = mock.fn(() => Promise.resolve({}));
+  const txRecurringSupportExecutionCreate = mock.fn(() => Promise.resolve({}));
 
   const recurringSupportFindMany = mock.fn(() =>
     Promise.resolve(overrides.recurringSupports ?? [makeSupport()]),
@@ -52,7 +52,7 @@ function buildPrismaMock(overrides: {
 
   const $transaction = mock.fn((cb: (tx: unknown) => Promise<void>) => {
     const tx = {
-      supportTransaction: { create: txSupportTransactionCreate },
+      recurringSupportExecution: { create: txRecurringSupportExecutionCreate },
       recurringSupport: { update: txRecurringSupportUpdate },
     };
     return cb(tx);
@@ -61,7 +61,7 @@ function buildPrismaMock(overrides: {
   return {
     recurringSupport: { findMany: recurringSupportFindMany },
     $transaction,
-    txSupportTransactionCreate,
+    txRecurringSupportExecutionCreate,
     txRecurringSupportUpdate,
   };
 }
@@ -73,12 +73,11 @@ test("processDueRecurringSupports processes active due supports", async () => {
 
   assert.equal(mockPrisma.recurringSupport.findMany.mock.callCount(), 1);
   assert.equal(mockPrisma.$transaction.mock.callCount(), 1);
-  assert.equal(mockPrisma.txSupportTransactionCreate.mock.callCount(), 1);
+  assert.equal(mockPrisma.txRecurringSupportExecutionCreate.mock.callCount(), 1);
 
-  const createCall = getFirstArg<TxCreateArg>(mockPrisma.txSupportTransactionCreate);
-  assert.match(createCall.data.txHash as string, /^pending_/);
+  const createCall = getFirstArg<TxCreateArg>(mockPrisma.txRecurringSupportExecutionCreate);
+  assert.equal(createCall.data.recurringSupportId, "drip-1");
   assert.equal(createCall.data.status, "pending");
-  assert.equal(createCall.data.recipientAddress, "GAAAA");
 });
 
 test("processDueRecurringSupports advances nextRunAt for weekly frequency", async () => {
@@ -131,7 +130,7 @@ test("processDueRecurringSupports continues processing after individual failure"
   const $transaction = mock.fn((cb: (tx: unknown) => Promise<void>) => {
     callIndex++;
     const tx = {
-      supportTransaction: { create: mock.fn(() => Promise.resolve({})) },
+      recurringSupportExecution: { create: mock.fn(() => Promise.resolve({})) },
       recurringSupport: { update: mock.fn(() => Promise.resolve({})) },
     };
     const result = cb(tx);
@@ -153,26 +152,6 @@ test("processDueRecurringSupports continues processing after individual failure"
   await processDueRecurringSupports(mockPrisma as any);
 
   assert.equal($transaction.mock.callCount(), 2);
-});
-
-test("processDueRecurringSupports creates pending txHash in correct format", async () => {
-  const mockPrisma = buildPrismaMock();
-
-  await processDueRecurringSupports(mockPrisma as any);
-
-  const createCall = getFirstArg<TxCreateArg>(mockPrisma.txSupportTransactionCreate);
-  assert.match(createCall.data.txHash as string, /^pending_[0-9a-f-]{36}$/);
-});
-
-test("processDueRecurringSupports sets correct asset code from support", async () => {
-  const mockPrisma = buildPrismaMock({
-    recurringSupports: [makeSupport({ assetCode: "USDC" })],
-  });
-
-  await processDueRecurringSupports(mockPrisma as any);
-
-  const createCall = getFirstArg<TxCreateArg>(mockPrisma.txSupportTransactionCreate);
-  assert.equal(createCall.data.assetCode, "USDC");
 });
 
 test("processDueRecurringSupports filters for active status with due nextRunAt", async () => {

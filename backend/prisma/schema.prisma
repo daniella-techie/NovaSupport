@@ -95,6 +95,8 @@ model SupportTransaction {
   updatedAt        DateTime  @updatedAt
   profile          Profile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
   supporter        User?     @relation("SupporterTransactions", fields: [supporterId], references: [id], onDelete: SetNull)
+  recurringSupportExecutionId String? @unique
+  recurringSupportExecution   RecurringSupportExecution? @relation(fields: [recurringSupportExecutionId], references: [id], onDelete: SetNull)
 
   @@index([profileId])
   @@index([supporterId])
@@ -189,17 +191,33 @@ model RecurringSupport {
   cancelledAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  supporterAddress String?
   // #608: onDelete: SetNull preserves subscription history when the supporter's
   // User row is deleted. supporterId becomes NULL; the drip-scheduler detects
   // this on its next run and writes status = 'cancelled' + cancelledAt.
   supporter   User?     @relation("RecurringSupporters", fields: [supporterId], references: [id], onDelete: SetNull)
   profile     Profile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  executions  RecurringSupportExecution[]
 
   @@index([supporterId])
   @@index([profileId])
   @@index([nextRunAt])
   @@index([nextRunAt, status])
 }
+
+model RecurringSupportExecution {
+  id                 String           @id @default(cuid())
+  recurringSupportId String
+  status             String           @default("pending") // "pending", "success", "failed"
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  recurringSupport   RecurringSupport @relation(fields: [recurringSupportId], references: [id], onDelete: Cascade)
+  supportTransaction SupportTransaction?
+
+  @@index([recurringSupportId])
+  @@index([status])
+}
+
 
 // #281: cursor record for the contract event indexer.
 // One row per (network, contractId) pair. The indexer reads the cursor on

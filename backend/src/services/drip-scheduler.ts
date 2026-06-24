@@ -42,21 +42,11 @@ export async function processDueRecurringSupports(prismaClient = prisma) {
       }
 
       await prismaClient.$transaction(async (tx: any) => {
-        // Create the pending SupportTransaction
-        const txHash = `pending_${crypto.randomUUID()}`;
-
-        await tx.supportTransaction.create({
+        // Create the pending RecurringSupportExecution
+        await tx.recurringSupportExecution.create({
           data: {
-            txHash,
-            amount: support.amount,
-            assetCode: support.assetCode,
+            recurringSupportId: support.id,
             status: "pending",
-            message: `Recurring support (${support.frequency})`,
-            stellarNetwork: "TESTNET",
-            recipientAddress: support.profile.walletAddress,
-            profileId: support.profileId,
-            supporterId: support.supporterId,
-            supporterAddress: supporter.email,
           },
         });
 

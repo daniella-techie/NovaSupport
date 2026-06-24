@@ -2330,6 +2330,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
     recipientAddress: z.string().min(1),
     profileId: z.string().min(1),
     supporterId: z.string().optional().nullable(),
+    recurringSupportExecutionId: z.string().optional().nullable(),
   });
 
   async function verifyTransaction(
@@ -3088,12 +3089,39 @@ All errors return JSON with an \`error\` field and optional \`code\`:
           });
       }
 
+      if (parsed.data.recurringSupportExecutionId) {
+        const execution = await prisma.recurringSupportExecution.findUnique({
+          where: { id: parsed.data.recurringSupportExecutionId },
+          include: { recurringSupport: { include: { profile: true } } },
+        });
+        if (!execution) {
+          return sendError(res, 404, "Recurring support execution not found");
+        }
+        if (execution.status !== "pending") {
+          return sendError(res, 400, "Recurring support execution is not pending");
+        }
+        if (
+          new Decimal(execution.recurringSupport.amount).toString() !== new Decimal(parsed.data.amount).toString() ||
+          execution.recurringSupport.assetCode !== parsed.data.assetCode ||
+          execution.recurringSupport.profile.walletAddress !== parsed.data.recipientAddress
+        ) {
+          return sendError(res, 400, "Transaction details do not match recurring support subscription");
+        }
+      }
+
       let supportRecord;
       try {
         supportRecord = await prisma.$transaction(async (tx: any) => {
           const record = await tx.supportTransaction.create({
             data: parsed.data,
           });
+
+          if (parsed.data.recurringSupportExecutionId) {
+            await tx.recurringSupportExecution.update({
+              where: { id: parsed.data.recurringSupportExecutionId },
+              data: { status: "success" },
+            });
+          }
 
           if (parsed.data.status === "SUCCESS") {
             const milestones = await tx.milestone.findMany({
@@ -3991,6 +4019,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
     await prisma.recurringSupport.create({
       data: {
         supporterId: user.id,
+        supporterAddress: req.auth!.walletAddress,
         profileId,
         amount,
         assetCode,
