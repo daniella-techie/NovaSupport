@@ -964,31 +964,37 @@ All errors return JSON with an \`error\` field and optional \`code\`:
         });
       }
 
-      // Default sorting by newest
+      // Default sorting by newest.
+      // When an asset filter is supplied, push it into the DB query so that
+      // `total` reflects the actual matched count rather than the page-slice
+      // size returned by an in-memory filter (#602).
+      const assetWhere = asset
+        ? {
+            acceptedAssets: {
+              some: {
+                code: asset,
+                ...(assetIssuer !== "" ? { issuer: assetIssuer } : {}),
+              },
+            },
+          }
+        : {};
+
+      const combinedWhere = { ...where, ...assetWhere };
+
       const [profiles, total] = await Promise.all([
         prisma.profile.findMany({
-          where,
+          where: combinedWhere,
           take: limit,
           skip: offset,
           orderBy,
           include: { acceptedAssets: true },
         }),
-        prisma.profile.count({ where }),
+        prisma.profile.count({ where: combinedWhere }),
       ]);
 
-      const filtered = asset
-        ? profiles.filter((p: any) =>
-            p.acceptedAssets.some(
-              (a: any) =>
-                a.code === asset &&
-                (assetIssuer === "" || a.issuer === assetIssuer),
-            ),
-          )
-        : profiles;
-
       res.json({
-        profiles: filtered,
-        total: asset ? filtered.length : total,
+        profiles,
+        total,
         limit,
         offset,
       });
