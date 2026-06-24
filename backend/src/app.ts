@@ -1834,7 +1834,12 @@ All errors return JSON with an \`error\` field and optional \`code\`:
         return res.json(updated);
       } catch (e: unknown) {
         if (e && typeof e === "object" && "code" in e && e.code === "P2002") {
-          return sendError(res, 409, "Email already in use", "EMAIL_TAKEN");
+          // Inspect meta.target to tell the caller which unique field is taken.
+          // The creation endpoint uses the same pattern so clients receive a
+          // consistent error shape across both operations (#603).
+          const meta = (e as { meta?: { target?: string[] } }).meta;
+          const field = meta?.target?.includes("email") ? "Email" : "Username";
+          return sendError(res, 409, `${field} already taken`, `${field.toUpperCase()}_TAKEN`);
         }
         req.log.error({ err: e }, "database error updating profile");
         return sendError(res, 500, "Internal server error");
