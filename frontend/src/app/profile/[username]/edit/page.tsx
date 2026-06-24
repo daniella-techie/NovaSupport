@@ -6,6 +6,7 @@ import Link from "next/link";
 import { getAddress } from "@stellar/freighter-api";
 import { AppShell } from "@/components/app-shell";
 import { API_BASE_URL } from "@/lib/config";
+import { apiFetch } from "@/lib/api-client";
 import { useToast } from "@/lib/use-toast";
 import { Toast } from "@/components/toast";
 
@@ -153,10 +154,6 @@ export default function EditProfilePage() {
 
     setSubmitting(true);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-
       const profilePayload: Record<string, string | null> = {
         displayName: form.displayName,
         bio: form.bio || "",
@@ -167,14 +164,14 @@ export default function EditProfilePage() {
       };
 
       const [profileRes, assetsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/profiles/${username}`, {
+        apiFetch(`${API_BASE_URL}/profiles/${username}`, {
           method: "PATCH",
-          headers,
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(profilePayload),
         }),
-        fetch(`${API_BASE_URL}/profiles/${username}/assets`, {
+        apiFetch(`${API_BASE_URL}/profiles/${username}/assets`, {
           method: "PATCH",
-          headers,
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             assets: assets.map((a) => ({
               code: a.code,

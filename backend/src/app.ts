@@ -13,6 +13,7 @@ import compression from "compression";
 import nodemailer from "nodemailer";
 import { prisma } from "./db.js";
 import { Prisma } from "@prisma/client";
+import { Decimal } from "@prisma/client/runtime/library";
 import { logger } from "./logger.js";
 import {
   generateChallenge,
@@ -3016,7 +3017,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
               const updated = await tx.milestone.update({
                 where: { id: milestone.id },
                 data: {
-                  currentAmount: { increment: parsed.data.amount },
+                  currentAmount: { increment: new Decimal(parsed.data.amount) },
                 },
               });
 
