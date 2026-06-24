@@ -163,7 +163,7 @@ model WebhookDelivery {
   payload      Json
   status       String   @default("pending") // "pending", "success", "failed"
   attemptCount Int      @default(0)
-  nextRetryAt  DateTime @default(now())
+  nextRetryAt  DateTime? @default(now())
   lastError    String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
