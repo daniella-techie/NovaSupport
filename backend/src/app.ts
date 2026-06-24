@@ -1983,7 +1983,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
 
     try {
       const profile = await prisma.profile.findFirst({
-        where: { username: req.params.username, emailVerificationToken: token },
+        where: { username: req.params.username as string, emailVerificationToken: token },
       });
 
       if (!profile) {
@@ -2526,7 +2526,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
    *         description: Internal server error
    */
   v1Router.get("/profiles/:username/transactions/export", requireAuth, async (req, res) => {
-    const { username } = req.params;
+    const username = req.params.username as string;
     const { startDate, endDate, taxYear } = req.query;
 
     try {
