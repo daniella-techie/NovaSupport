@@ -61,6 +61,7 @@ export default function EditProfilePage() {
   const { toast, showToast, dismiss } = useToast();
 
   const [loading, setLoading] = useState(true);
+  const [ownershipChecked, setOwnershipChecked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -82,7 +83,6 @@ export default function EditProfilePage() {
   useEffect(() => {
     async function init() {
       try {
-        // Fetch profile
         const res = await fetch(`${API_BASE_URL}/profiles/${username}`);
         if (!res.ok) {
           router.replace("/");
@@ -90,7 +90,6 @@ export default function EditProfilePage() {
         }
         const profile: ProfileData = await res.json();
 
-        // Check ownership via Freighter (not localStorage)
         const result = await getAddress().catch(() => ({ address: "", error: "Freighter not available" }));
         const connectedAddress = "address" in result ? result.address : "";
 
@@ -99,6 +98,7 @@ export default function EditProfilePage() {
           return;
         }
 
+        setOwnershipChecked(true);
         setForm({
           displayName: profile.displayName ?? "",
           bio: profile.bio ?? "",
@@ -199,7 +199,7 @@ export default function EditProfilePage() {
     }
   }
 
-  if (loading) {
+  if (loading || !ownershipChecked) {
     return (
       <AppShell>
         <div className="flex h-[60vh] items-center justify-center">
