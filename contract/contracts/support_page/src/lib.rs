@@ -179,7 +179,7 @@ impl SupportPageContract {
             return Err(Error::InsufficientBalance);
         }
         
-        // Attempt transfer
+        // Transfer tokens - panics on failure per Soroban token contract spec
         client.transfer(&s, &e.current_contract_address(), &o);
 
         let st = e.storage().persistent();
@@ -279,7 +279,7 @@ impl SupportPageContract {
             return Err(Error::InsufficientContractBalance);
         }
 
-        // Transfer funds from contract to recipient
+        // Transfer funds from contract to recipient - panics on failure per Soroban token contract spec
         client.transfer(&e.current_contract_address(), &recipient, &amount);
 
         // Deduct from TotalByAsset storage
