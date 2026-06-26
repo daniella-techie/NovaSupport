@@ -490,6 +490,8 @@ All errors return JSON with an \`error\` field and optional \`code\`:
     try {
       const profiles = await prisma.profile.findMany({
         select: { walletAddress: true },
+        where: { walletAddress: { not: null } },
+        take: 10_000,
       });
 
       const accountLines = profiles
@@ -497,7 +499,9 @@ All errors return JSON with an \`error\` field and optional \`code\`:
         .join("\n\n");
 
       const body = [
-        `NETWORK_PASSPHRASE="Test SDF Network ; September 2015"`,
+        `NETWORK_PASSPHRASE="${process.env.STELLAR_NETWORK === 'MAINNET'
+          ? 'Public Global Stellar Network ; September 2015'
+          : 'Test SDF Network ; September 2015'}"`,
         `FEDERATION_SERVER="https://api.novasupport.xyz/federation"`,
         ``,
         accountLines || `# no accounts yet`,
@@ -2316,7 +2320,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
       })
       .optional()
       .nullable(),
-    stellarNetwork: z.string().default("TESTNET"),
+    stellarNetwork: z.string().default(process.env.INDEXER_NETWORK ?? "TESTNET"),
     supporterAddress: z.string().optional().nullable(),
     recipientAddress: z.string().min(1),
     profileId: z.string().min(1),
@@ -4176,9 +4180,12 @@ All errors return JSON with an \`error\` field and optional \`code\`:
     if (!subscription) return sendError(res, 404, "Recurring support not found");
     if (subscription.supporterId !== user.id) return sendError(res, 403, "Forbidden");
 
-    await prisma.recurringSupport.delete({ where: { id: id as string } });
+    await prisma.recurringSupport.update({
+      where: { id: id as string },
+      data: { status: "cancelled", cancelledAt: new Date() },
+    });
 
-    return res.status(204).send();
+    return res.status(200).json({ ok: true });
   });
 
   /**
