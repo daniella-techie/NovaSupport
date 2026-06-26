@@ -235,15 +235,12 @@ export class EventIndexer {
     );
 
     let resolved = 0;
-    for (const orphan of orphans) {
-      const profileId = addressToProfileId.get(orphan.recipientAddress);
-      if (!profileId) continue;
-
-      await this.prisma.supportTransaction.update({
-        where: { id: orphan.id },
+    for (const [address, profileId] of addressToProfileId) {
+      const count = await this.prisma.supportTransaction.updateMany({
+        where: { profileId: "__orphan__", recipientAddress: address },
         data: { profileId },
       });
-      resolved += 1;
+      resolved += count.count;
     }
 
     if (resolved > 0) {

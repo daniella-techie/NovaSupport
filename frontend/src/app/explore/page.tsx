@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { API_BASE_URL } from "@/lib/config";
 import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
@@ -31,6 +31,7 @@ export default function ExplorePage() {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const limit = 20;
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const sentinelRef = useInfiniteScroll({
     onLoadMore: handleLoadMore,
@@ -65,6 +66,10 @@ export default function ExplorePage() {
   }, [profiles]);
 
   async function fetchProfiles(currentOffset: number, reset = false) {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       setLoading(true);
       setError(null);
@@ -83,7 +88,9 @@ export default function ExplorePage() {
         params.append("assetIssuer", assetIssuer);
       }
 
-      const response = await fetch(`${API_BASE_URL}/profiles?${params}`);
+      const response = await fetch(`${API_BASE_URL}/profiles?${params}`, {
+        signal: controller.signal,
+      });
 
       if (!response.ok) {
         throw new Error("Failed to fetch profiles");
@@ -99,9 +106,12 @@ export default function ExplorePage() {
 
       setHasMore(data.profiles.length === limit);
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Failed to load profiles");
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) {
+        setLoading(false);
+      }
     }
   }
 

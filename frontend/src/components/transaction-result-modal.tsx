@@ -105,6 +105,10 @@ export function TransactionResultModal({
     const interval = window.setInterval(() => {
       if (Date.now() - startedAt > maxDurationMs) {
         window.clearInterval(interval);
+        if (!pollingDoneRef.current) {
+          setTxStatus("failed");
+          setTxStatusMessage("Could not confirm in time. Check the explorer for status.");
+        }
         return;
       }
       if (pollingDoneRef.current) {
