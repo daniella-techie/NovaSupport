@@ -28,6 +28,7 @@ import { WalletConnect } from "./wallet-connect";
 import { TransactionResultModal } from "./transaction-result-modal";
 import { API_BASE_URL, STELLAR_NETWORK } from "@/lib/config";
 import { formatRateLimitedMessage, parseRateLimitInfo } from "@/lib/rate-limit";
+import { apiFetch } from "@/lib/api-client";
 
 type Asset = {
   code: string;
@@ -66,10 +67,15 @@ export function SupportPanel({
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [accountNotFound, setAccountNotFound] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [paymentAsset, setPaymentAsset] = useState<{ code: string; issuer?: string }>({ code: "XLM" });
+  const [paymentAsset, setPaymentAsset] = useState<{
+    code: string;
+    issuer?: string;
+  }>({ code: "XLM" });
   const [visitorBalances, setVisitorBalances] = useState<any[]>([]);
   const [visitorBalancesLoaded, setVisitorBalancesLoaded] = useState(false);
-  const [estimatedReceived, setEstimatedReceived] = useState<string | null>(null);
+  const [estimatedReceived, setEstimatedReceived] = useState<string | null>(
+    null,
+  );
   const [noPathFound, setNoPathFound] = useState(false);
   const [message, setMessage] = useState("");
   const [isRecurring, setIsRecurring] = useState(false);
@@ -88,12 +94,15 @@ export function SupportPanel({
     }
   }, [walletAddress]);
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "c") {
-      e.preventDefault();
-      handleCopy();
-    }
-  }, [handleCopy]);
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "c") {
+        e.preventDefault();
+        handleCopy();
+      }
+    },
+    [handleCopy],
+  );
 
   const handleSend = useCallback(async () => {
     const parsedAmt = parseFloat(amount);
@@ -102,10 +111,17 @@ export function SupportPanel({
     const overBalance = validAmount && parsedAmt + FEE_IN_XLM > parsedBal;
     if (!visitorAddress || !validAmount || overBalance || sending) return;
 
-    const walletId = (typeof localStorage !== "undefined" ? localStorage.getItem("walletId") : null) as WalletId | null;
+    const walletId = (
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem("walletId")
+        : null
+    ) as WalletId | null;
     const adapter = walletId ? getWalletAdapter(walletId) : null;
     if (!adapter) {
-      showToast("Wallet not connected — please reconnect and try again.", "error");
+      showToast(
+        "Wallet not connected — please reconnect and try again.",
+        "error",
+      );
       return;
     }
 
@@ -141,15 +157,23 @@ export function SupportPanel({
         address: visitorAddress,
       });
 
-      const tx = TransactionBuilder.fromXDR(signedXdr, stellarConfig.networkPassphrase) as Transaction | FeeBumpTransaction;
+      const tx = TransactionBuilder.fromXDR(
+        signedXdr,
+        stellarConfig.networkPassphrase,
+      ) as Transaction | FeeBumpTransaction;
       const result = await horizonServer.submitTransaction(tx);
       setTxHash(result.hash);
 
       if (isRecurring && profileId) {
-        await fetch(`${API_BASE_URL}/api/v1/recurring-support`, {
+        await apiFetch(`${API_BASE_URL}/api/v1/recurring-support`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ profileId, amount, assetCode: paymentAsset.code, frequency }),
+          body: JSON.stringify({
+            profileId,
+            amount,
+            assetCode: paymentAsset.code,
+            frequency,
+          }),
         }).catch(() => {
           // Non-critical — recurring registration failure doesn't affect the payment.
         });
@@ -162,8 +186,16 @@ export function SupportPanel({
       setSending(false);
     }
   }, [
-    visitorAddress, amount, balance, sending,
-    paymentAsset, walletAddress, message, isRecurring, profileId, frequency,
+    visitorAddress,
+    amount,
+    balance,
+    sending,
+    paymentAsset,
+    walletAddress,
+    message,
+    isRecurring,
+    profileId,
+    frequency,
     showToast,
   ]);
 
@@ -176,7 +208,7 @@ export function SupportPanel({
     try {
       const account = await horizonServer.loadAccount(address);
       const xlmBalance = account.balances.find(
-        (b: any) => b.asset_type === "native"
+        (b: any) => b.asset_type === "native",
       );
       setBalance(xlmBalance ? xlmBalance.balance : "0");
     } catch (err: any) {
@@ -275,14 +307,34 @@ export function SupportPanel({
           >
             {copied ? (
               <span className="text-mint flex items-center gap-1 text-[10px] font-bold">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-3 w-3"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                    clipRule="evenodd"
+                  />
                 </svg>
                 Copied
               </span>
             ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 12-2h2a2 2 0 12 2m0 0h2a2 2 0 12 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 12-2h2a2 2 0 12 2m0 0h2a2 2 0 12 2v3m2 4H10m0 0l3-3m-3 3l3 3"
+                />
               </svg>
             )}
           </button>
@@ -378,7 +430,10 @@ export function SupportPanel({
                     Account not funded (Testnet)
                   </a>
                 ) : (
-                  <span>Available: {availableBalance.toFixed(2)} {paymentAsset?.code || "XLM"}</span>
+                  <span>
+                    Available: {availableBalance.toFixed(2)}{" "}
+                    {paymentAsset?.code || "XLM"}
+                  </span>
                 )}
               </div>
             )}
@@ -394,7 +449,9 @@ export function SupportPanel({
               onChange={(e) => setAmount(e.target.value)}
               aria-label="Support amount"
               aria-describedby={`${amountErrorId} ${balanceErrorId}`}
-              aria-invalid={Boolean(showError || (isOverBalance && isValidAmount))}
+              aria-invalid={Boolean(
+                showError || (isOverBalance && isValidAmount),
+              )}
               className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-sky/50 focus:border-mint/50 focus:outline-none"
             />
             <div className="flex items-center rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-sky/80 min-w-[80px] justify-center">
@@ -446,7 +503,9 @@ export function SupportPanel({
           >
             Leave a message (optional)
           </label>
-          <span className={`text-[10px] font-medium ${message.length >= 28 ? "text-red-400" : "text-sky/40"}`}>
+          <span
+            className={`text-[10px] font-medium ${message.length >= 28 ? "text-red-400" : "text-sky/40"}`}
+          >
             {message.length} / 28
           </span>
         </div>
@@ -485,7 +544,11 @@ export function SupportPanel({
             >
               Frequency
             </label>
-            <div className="flex gap-2" role="group" aria-labelledby={frequencyGroupId}>
+            <div
+              className="flex gap-2"
+              role="group"
+              aria-labelledby={frequencyGroupId}
+            >
               <button
                 type="button"
                 onClick={() => setFrequency("weekly")}
@@ -569,7 +632,8 @@ export function SupportPanel({
           </div>
           {assetCode !== "XLM" && (
             <p className="mt-1 text-[10px] text-steel/60">
-              Path payments may incur slightly higher fees due to additional operations
+              Path payments may incur slightly higher fees due to additional
+              operations
             </p>
           )}
         </div>
@@ -594,8 +658,8 @@ export function SupportPanel({
       </button>
 
       <p className="mt-4 text-xs leading-6 text-steel">
-        This builds and signs a Stellar payment using Freighter.
-        The transaction hash is stored on the NovaSupport backend.
+        This builds and signs a Stellar payment using Freighter. The transaction
+        hash is stored on the NovaSupport backend.
       </p>
 
       <TransactionResultModal

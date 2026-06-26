@@ -15,7 +15,16 @@ export async function apiFetch(
   if (res.status === 401 && typeof window !== "undefined") {
     localStorage.removeItem("authToken");
     localStorage.removeItem("username");
-    window.location.href = "/";
+
+    // Store current path before redirect so user can return after re-login
+    localStorage.setItem(
+      "redirectAfterLogin",
+      window.location.pathname + window.location.search,
+    );
+
+    // Use history.replaceState to preserve history stack instead of window.location.href
+    window.history.replaceState(null, "", "/");
+    window.location.reload();
   }
 
   return res;

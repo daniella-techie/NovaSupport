@@ -8,13 +8,27 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import { API_BASE_URL } from "@/lib/config";
 import { apiFetch } from "@/lib/api-client";
 import { stellarExpertUrl } from "@/lib/stellar";
-import { 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
 } from "recharts";
-import { 
-  TrendingUp, Users, Wallet, Activity, 
-  ArrowUpRight, ArrowDownRight, Info
+import {
+  TrendingUp,
+  Users,
+  Wallet,
+  Activity,
+  ArrowUpRight,
+  ArrowDownRight,
+  Info,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -122,20 +136,43 @@ function normalizeAnalyticsResponse(json: unknown): AnalyticsData {
   const payload = (json ?? {}) as Record<string, unknown>;
   const summary = (payload.summary ?? {}) as Record<string, unknown>;
 
-  const dailySource = (payload.dailyContributions ?? payload.daily_contributions ?? []) as unknown[];
-  const assetSource = (payload.assetBreakdown ?? payload.asset_breakdown ?? []) as unknown[];
-  const txSource = (payload.recentTransactions ?? payload.recent_transactions ?? payload.transactions ?? []) as unknown[];
+  const dailySource = (payload.dailyContributions ??
+    payload.daily_contributions ??
+    []) as unknown[];
+  const assetSource = (payload.assetBreakdown ??
+    payload.asset_breakdown ??
+    []) as unknown[];
+  const txSource = (payload.recentTransactions ??
+    payload.recent_transactions ??
+    payload.transactions ??
+    []) as unknown[];
 
   return {
     summary: {
-      totalRaised: toNumber(summary.totalRaised ?? summary.total_raised ?? payload.totalRaised ?? payload.total_raised),
+      totalRaised: toNumber(
+        summary.totalRaised ??
+          summary.total_raised ??
+          payload.totalRaised ??
+          payload.total_raised,
+      ),
       totalContributors: toNumber(
-        summary.totalContributors ?? summary.total_contributors ?? payload.totalContributors ?? payload.total_contributors
+        summary.totalContributors ??
+          summary.total_contributors ??
+          payload.totalContributors ??
+          payload.total_contributors,
       ),
       avgContribution: toNumber(
-        summary.avgContribution ?? summary.avg_contribution ?? payload.avgContribution ?? payload.avg_contribution
+        summary.avgContribution ??
+          summary.avg_contribution ??
+          payload.avgContribution ??
+          payload.avg_contribution,
       ),
-      activeDrips: toNumber(summary.activeDrips ?? summary.active_drips ?? payload.activeDrips ?? payload.active_drips),
+      activeDrips: toNumber(
+        summary.activeDrips ??
+          summary.active_drips ??
+          payload.activeDrips ??
+          payload.active_drips,
+      ),
     },
     dailyContributions: dailySource.map((entry, index) => {
       const item = entry as Record<string, unknown>;
@@ -147,18 +184,31 @@ function normalizeAnalyticsResponse(json: unknown): AnalyticsData {
     assetBreakdown: assetSource.map((entry) => {
       const item = entry as Record<string, unknown>;
       return {
-        name: toString(item.name ?? item.assetCode ?? item.asset_code, "Unknown"),
-        value: toNumber(item.value ?? item.amount ?? item.totalAmount ?? item.total_amount),
+        name: toString(
+          item.name ?? item.assetCode ?? item.asset_code,
+          "Unknown",
+        ),
+        value: toNumber(
+          item.value ?? item.amount ?? item.totalAmount ?? item.total_amount,
+        ),
       };
     }),
     recentTransactions: txSource.map((entry, index) => {
       const item = entry as Record<string, unknown>;
-      const txType = toString(item.type ?? item.supportType ?? item.support_type, "One-time");
-      const supporter = toString(
-        item.user ?? item.supporter ?? item.supporterAddress ?? item.supporter_address,
-        "Unknown"
+      const txType = toString(
+        item.type ?? item.supportType ?? item.support_type,
+        "One-time",
       );
-      const amountValue = toNumber(item.amount ?? item.totalAmount ?? item.total_amount);
+      const supporter = toString(
+        item.user ??
+          item.supporter ??
+          item.supporterAddress ??
+          item.supporter_address,
+        "Unknown",
+      );
+      const amountValue = toNumber(
+        item.amount ?? item.totalAmount ?? item.total_amount,
+      );
       const createdAt = toString(item.createdAt ?? item.created_at, "");
       return {
         id: toString(item.id ?? item.txHash ?? item.tx_hash, `tx-${index}`),
@@ -174,35 +224,39 @@ function normalizeAnalyticsResponse(json: unknown): AnalyticsData {
 
 function normalizeTimeseriesResponse(json: unknown): ChartPoint[] {
   const payload = (json ?? {}) as Record<string, unknown>;
-  const source = (
-    payload.points ??
+  const source = (payload.points ??
     payload.data ??
     payload.series ??
     payload.dailyContributions ??
     payload.daily_contributions ??
-    []
-  ) as unknown[];
+    []) as unknown[];
 
   return source.map((entry, index) => {
     const item = entry as Record<string, unknown>;
     const rawDate = toString(
       item.date ??
-      item.label ??
-      item.periodStart ??
-      item.period_start ??
-      item.timestamp,
-      `Point ${index + 1}`
+        item.label ??
+        item.periodStart ??
+        item.period_start ??
+        item.timestamp,
+      `Point ${index + 1}`,
     );
 
     return {
       date: formatChartDate(rawDate),
-      amount: toNumber(item.amount ?? item.totalAmount ?? item.total_amount ?? item.value ?? item.total),
+      amount: toNumber(
+        item.amount ??
+          item.totalAmount ??
+          item.total_amount ??
+          item.value ??
+          item.total,
+      ),
     };
   });
 }
 
 function csvEscape(value: string): string {
-  const escaped = value.replace(/"/g, "\"\"");
+  const escaped = value.replace(/"/g, '""');
   return `"${escaped}"`;
 }
 
@@ -228,7 +282,9 @@ function downloadCsv(rows: TransactionCsvRow[]): void {
       row.status,
       row.txHash,
       expertUrl,
-    ].map(csvEscape).join(",");
+    ]
+      .map(csvEscape)
+      .join(",");
   });
 
   const csv = `${headers.join(",")}\n${lines.join("\n")}`;
@@ -268,7 +324,9 @@ export default function DashboardPage() {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [settings, setSettings] = useState<ProfileSettings | null>(null);
   const [chartData, setChartData] = useState<ChartPoint[]>([]);
-  const [assetBreakdown, setAssetBreakdown] = useState<AssetBreakdownEntry[]>([]);
+  const [assetBreakdown, setAssetBreakdown] = useState<AssetBreakdownEntry[]>(
+    [],
+  );
   const [assetTotal, setAssetTotal] = useState(0);
   const [selectedPeriod, setSelectedPeriod] = useState<ChartRange>("30D");
   const [chartLoading, setChartLoading] = useState(true);
@@ -278,11 +336,17 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [resendingVerification, setResendingVerification] = useState(false);
-  const [verificationBannerMsg, setVerificationBannerMsg] = useState<string | null>(null);
-  const [verificationBannerType, setVerificationBannerType] = useState<"success" | "error">("success");
+  const [verificationBannerMsg, setVerificationBannerMsg] = useState<
+    string | null
+  >(null);
+  const [verificationBannerType, setVerificationBannerType] = useState<
+    "success" | "error"
+  >("success");
   const [drips, setDrips] = useState<RecurringDrip[]>([]);
   const [dripsLoading, setDripsLoading] = useState(true);
-  const [dripActionLoading, setDripActionLoading] = useState<string | null>(null);
+  const [dripActionLoading, setDripActionLoading] = useState<string | null>(
+    null,
+  );
   const [trends, setTrends] = useState({
     totalRaised: "—",
     totalRaisedPositive: true,
@@ -294,15 +358,18 @@ export default function DashboardPage() {
     async function fetchData() {
       try {
         const [analyticsRes, profileRes, assetsRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/analytics/${campaignId}`),
-          fetch(`${API_BASE_URL}/profiles/${campaignId}`),
-          fetch(`${API_BASE_URL}/profiles/${campaignId}/analytics/assets`),
+          apiFetch(`${API_BASE_URL}/analytics/${campaignId}`),
+          apiFetch(`${API_BASE_URL}/profiles/${campaignId}`),
+          apiFetch(`${API_BASE_URL}/profiles/${campaignId}/analytics/assets`),
         ]);
         if (!analyticsRes.ok) throw new Error("Failed to fetch analytics");
         if (!profileRes.ok) throw new Error("Failed to fetch profile settings");
 
         const json = await analyticsRes.json();
-        const profileJson = (await profileRes.json()) as Record<string, unknown>;
+        const profileJson = (await profileRes.json()) as Record<
+          string,
+          unknown
+        >;
         setData(normalizeAnalyticsResponse(json));
         setSettings({
           walletAddress: toString(profileJson.walletAddress),
@@ -312,7 +379,10 @@ export default function DashboardPage() {
         });
 
         if (assetsRes.ok) {
-          const assetsJson = (await assetsRes.json()) as { breakdown: AssetBreakdownEntry[]; total: number };
+          const assetsJson = (await assetsRes.json()) as {
+            breakdown: AssetBreakdownEntry[];
+            total: number;
+          };
           setAssetBreakdown(assetsJson.breakdown ?? []);
           setAssetTotal(assetsJson.total ?? 0);
         }
@@ -333,8 +403,8 @@ export default function DashboardPage() {
 
       try {
         const from = getFromDate(selectedPeriod);
-        const response = await fetch(
-          `${API_BASE_URL}/profiles/${campaignId}/analytics/timeseries?period=daily&from=${encodeURIComponent(from)}`
+        const response = await apiFetch(
+          `${API_BASE_URL}/profiles/${campaignId}/analytics/timeseries?period=daily&from=${encodeURIComponent(from)}`,
         );
 
         if (!response.ok) {
@@ -386,31 +456,54 @@ export default function DashboardPage() {
       try {
         const now = new Date();
         const periodEnd = now.toISOString();
-        const periodStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-        const prevStart = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString();
+        const periodStart = new Date(
+          now.getTime() - 30 * 24 * 60 * 60 * 1000,
+        ).toISOString();
+        const prevStart = new Date(
+          now.getTime() - 60 * 24 * 60 * 60 * 1000,
+        ).toISOString();
 
         const [currRes, prevRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/profiles/${campaignId}/analytics/timeseries?period=daily&from=${encodeURIComponent(periodStart)}&to=${encodeURIComponent(periodEnd)}`),
-          fetch(`${API_BASE_URL}/profiles/${campaignId}/analytics/timeseries?period=daily&from=${encodeURIComponent(prevStart)}&to=${encodeURIComponent(periodStart)}`),
+          apiFetch(
+            `${API_BASE_URL}/profiles/${campaignId}/analytics/timeseries?period=daily&from=${encodeURIComponent(periodStart)}&to=${encodeURIComponent(periodEnd)}`,
+          ),
+          apiFetch(
+            `${API_BASE_URL}/profiles/${campaignId}/analytics/timeseries?period=daily&from=${encodeURIComponent(prevStart)}&to=${encodeURIComponent(periodStart)}`,
+          ),
         ]);
 
         if (!currRes.ok || !prevRes.ok) return;
 
-        const [currJson, prevJson] = await Promise.all([currRes.json(), prevRes.json()]) as [
+        const [currJson, prevJson] = (await Promise.all([
+          currRes.json(),
+          prevRes.json(),
+        ])) as [
           { data?: Array<{ amount: string; count: number }> },
           { data?: Array<{ amount: string; count: number }> },
         ];
 
-        const sum = (arr: Array<{ amount: string; count: number }>, key: "amount" | "count") =>
-          arr.reduce((acc, d) => acc + (key === "amount" ? Number(d.amount) : d.count), 0);
+        const sum = (
+          arr: Array<{ amount: string; count: number }>,
+          key: "amount" | "count",
+        ) =>
+          arr.reduce(
+            (acc, d) => acc + (key === "amount" ? Number(d.amount) : d.count),
+            0,
+          );
 
         const currAmount = sum(currJson.data ?? [], "amount");
         const prevAmount = sum(prevJson.data ?? [], "amount");
         const currCount = sum(currJson.data ?? [], "count");
         const prevCount = sum(prevJson.data ?? [], "count");
 
-        function formatTrend(curr: number, prev: number): { label: string; positive: boolean } {
-          if (prev === 0) return curr === 0 ? { label: "No change", positive: true } : { label: "+100%", positive: true };
+        function formatTrend(
+          curr: number,
+          prev: number,
+        ): { label: string; positive: boolean } {
+          if (prev === 0)
+            return curr === 0
+              ? { label: "No change", positive: true }
+              : { label: "+100%", positive: true };
           const pct = ((curr - prev) / prev) * 100;
           if (pct === 0) return { label: "No change", positive: true };
           const sign = pct > 0 ? "+" : "";
@@ -436,9 +529,10 @@ export default function DashboardPage() {
   const isOwner = Boolean(
     settings?.walletAddress &&
     connectedWallet &&
-    settings.walletAddress === connectedWallet
+    settings.walletAddress === connectedWallet,
   );
-  const isChartEmpty = chartData.length === 0 || chartData.every((point) => point.amount === 0);
+  const isChartEmpty =
+    chartData.length === 0 || chartData.every((point) => point.amount === 0);
 
   useEffect(() => {
     let cancelled = false;
@@ -469,7 +563,9 @@ export default function DashboardPage() {
 
     fetchDrips();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [campaignId, isOwner]);
 
   async function handleDripAction(id: string, action: "paused" | "cancelled") {
@@ -494,9 +590,13 @@ export default function DashboardPage() {
     if (!isOwner) return;
     setCsvLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/profiles/${campaignId}/transactions?limit=1000`);
+      const res = await apiFetch(
+        `${API_BASE_URL}/profiles/${campaignId}/transactions?limit=50`,
+      );
       if (!res.ok) throw new Error("Failed to fetch full transactions");
-      const json = (await res.json()) as { transactions?: Array<Record<string, unknown>> };
+      const json = (await res.json()) as {
+        transactions?: Array<Record<string, unknown>>;
+      };
       const rows: TransactionCsvRow[] = (json.transactions ?? []).map((tx) => ({
         createdAt: toString(tx.createdAt, new Date().toISOString()),
         amount: toString(tx.amount, "0"),
@@ -520,7 +620,7 @@ export default function DashboardPage() {
     setSettingsSaving(true);
     setSettings({ ...settings, notifyOnSupport: next });
     try {
-      const res = await fetch(`${API_BASE_URL}/profiles/${campaignId}`, {
+      const res = await apiFetch(`${API_BASE_URL}/profiles/${campaignId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notifyOnSupport: next }),
@@ -541,16 +641,24 @@ export default function DashboardPage() {
     setResendingVerification(true);
     setVerificationBannerMsg(null);
     try {
-      const res = await apiFetch(`${API_BASE_URL}/profiles/${campaignId}/resend-verification-email`, {
-        method: "POST",
-      });
-      const json = await res.json().catch(() => ({})) as Record<string, unknown>;
+      const res = await apiFetch(
+        `${API_BASE_URL}/profiles/${campaignId}/resend-verification-email`,
+        {
+          method: "POST",
+        },
+      );
+      const json = (await res.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
       if (res.ok) {
         setVerificationBannerMsg("Verification email sent — check your inbox");
         setVerificationBannerType("success");
       } else {
         setVerificationBannerMsg(
-          typeof json.error === "string" ? json.error : "Failed to resend verification email"
+          typeof json.error === "string"
+            ? json.error
+            : "Failed to resend verification email",
         );
         setVerificationBannerType("error");
       }
@@ -560,491 +668,582 @@ export default function DashboardPage() {
     } finally {
       setResendingVerification(false);
     }
-  }  if (loading) return (
-    <AppShell>
-      <div className="flex h-[60vh] items-center justify-center">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-mint border-t-transparent" />
-      </div>
-    </AppShell>
-  );
-
-  if (error || !data) return (
-    <AppShell>
-      <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
-        <div className="rounded-full bg-red-500/10 p-4 text-red-500">
-          <Info size={48} />
+  }
+  if (loading)
+    return (
+      <AppShell>
+        <div className="flex h-[60vh] items-center justify-center">
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-mint border-t-transparent" />
         </div>
-        <h2 className="text-2xl font-bold text-white">Analytics Unavailable</h2>
-        <p className="text-steel">We couldn&apos;t load the metrics for this campaign.</p>
-      </div>
-    </AppShell>
-  );
+      </AppShell>
+    );
+
+  if (error || !data)
+    return (
+      <AppShell>
+        <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
+          <div className="rounded-full bg-red-500/10 p-4 text-red-500">
+            <Info size={48} />
+          </div>
+          <h2 className="text-2xl font-bold text-white">
+            Analytics Unavailable
+          </h2>
+          <p className="text-steel">
+            We couldn&apos;t load the metrics for this campaign.
+          </p>
+        </div>
+      </AppShell>
+    );
 
   return (
     <ErrorBoundary>
       <AppShell>
         <div className="mx-auto max-w-7xl space-y-8">
-          <Link href={`/profile/${campaignId}`} className="text-sm text-indigo-500 hover:underline">
+          <Link
+            href={`/profile/${campaignId}`}
+            className="text-sm text-indigo-500 hover:underline"
+          >
             ← Back to profile
           </Link>
-        
-        <header className="flex flex-col gap-2">
-          <h1 className="text-3xl font-bold tracking-tight text-white">
-            Campaign <span className="text-mint">Analytics</span>
-          </h1>
-          <p className="text-steel">
-            Real-time performance metrics for <span className="text-white font-mono">{campaignId}</span>
-          </p>
-        </header>
 
-        {/* Email verification banner — owner only */}
-        {isOwner && settings && (
-          <>
-            {settings.email && settings.emailVerified === false && (
-              <div className="rounded-2xl border border-yellow-500/30 bg-yellow-500/10 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-start gap-3">
-                  <span className="text-xl leading-none mt-0.5">⚠️</span>
-                  <div>
-                    <p className="text-sm font-semibold text-white">
-                      Your email <span className="font-mono text-yellow-300">{settings.email}</span> is not verified.
-                    </p>
-                    {verificationBannerMsg && (
-                      <p className={`mt-1 text-xs ${verificationBannerType === "success" ? "text-mint" : "text-red-400"}`}>
-                        {verificationBannerMsg}
+          <header className="flex flex-col gap-2">
+            <h1 className="text-3xl font-bold tracking-tight text-white">
+              Campaign <span className="text-mint">Analytics</span>
+            </h1>
+            <p className="text-steel">
+              Real-time performance metrics for{" "}
+              <span className="text-white font-mono">{campaignId}</span>
+            </p>
+          </header>
+
+          {/* Email verification banner — owner only */}
+          {isOwner && settings && (
+            <>
+              {settings.email && settings.emailVerified === false && (
+                <div className="rounded-2xl border border-yellow-500/30 bg-yellow-500/10 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-start gap-3">
+                    <span className="text-xl leading-none mt-0.5">⚠️</span>
+                    <div>
+                      <p className="text-sm font-semibold text-white">
+                        Your email{" "}
+                        <span className="font-mono text-yellow-300">
+                          {settings.email}
+                        </span>{" "}
+                        is not verified.
                       </p>
-                    )}
+                      {verificationBannerMsg && (
+                        <p
+                          className={`mt-1 text-xs ${verificationBannerType === "success" ? "text-mint" : "text-red-400"}`}
+                        >
+                          {verificationBannerMsg}
+                        </p>
+                      )}
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={handleResendVerification}
+                    disabled={resendingVerification}
+                    className="inline-flex min-h-[36px] items-center justify-center rounded-xl border border-yellow-500/40 bg-yellow-500/10 px-4 py-1.5 text-xs font-bold text-yellow-300 transition hover:bg-yellow-500/20 disabled:cursor-not-allowed disabled:opacity-60 shrink-0"
+                  >
+                    {resendingVerification ? (
+                      <span className="flex items-center gap-2">
+                        <span className="h-3 w-3 animate-spin rounded-full border border-yellow-300 border-t-transparent" />
+                        Sending…
+                      </span>
+                    ) : (
+                      "Resend verification email"
+                    )}
+                  </button>
                 </div>
+              )}
+
+              {!settings.email && (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 flex items-center gap-3">
+                  <span className="text-xl leading-none">📧</span>
+                  <p className="text-sm text-sky/70">
+                    Add an email to receive support notifications.{" "}
+                    <Link
+                      href="/create"
+                      className="text-mint hover:underline font-medium"
+                    >
+                      Edit profile
+                    </Link>
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              title="Total Raised"
+              value={`${data.summary.totalRaised.toLocaleString()} XLM`}
+              icon={<Wallet className="text-mint" />}
+              trend={trends.totalRaised}
+              positive={trends.totalRaisedPositive}
+            />
+            <StatCard
+              title="Contributors"
+              value={data.summary.totalContributors.toString()}
+              icon={<Users className="text-sky" />}
+              trend={trends.txCount}
+              positive={trends.txCountPositive}
+            />
+            <StatCard
+              title="Avg. Support"
+              value={`${data.summary.avgContribution} XLM`}
+              icon={<TrendingUp className="text-gold" />}
+              trend="—"
+              positive={true}
+            />
+            <StatCard
+              title="Active Drips"
+              value={data.summary.activeDrips.toString()}
+              icon={<Activity className="text-purple-400" />}
+              trend="—"
+              positive={true}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+            {/* Trend Chart */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="col-span-1 rounded-3xl border border-white/10 bg-white/5 p-6 lg:col-span-2 shadow-sm shadow-black/40"
+            >
+              <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <h3 className="text-sm font-semibold uppercase tracking-widest text-steel">
+                  Earnings Trend
+                </h3>
+                <div className="inline-flex rounded-full border border-white/10 bg-white/5 p-1">
+                  {(["7D", "30D", "90D"] as const).map((period) => (
+                    <button
+                      key={period}
+                      type="button"
+                      onClick={() => setSelectedPeriod(period)}
+                      className={`min-h-[44px] rounded-full px-4 py-2 text-xs font-semibold transition ${
+                        selectedPeriod === period
+                          ? "bg-mint text-ink"
+                          : "text-sky/70 hover:text-white"
+                      }`}
+                    >
+                      {period}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="h-[350px] w-full">
+                {chartLoading ? (
+                  <div className="grid h-full gap-4">
+                    <div className="h-8 w-32 animate-pulse rounded-full bg-white/10" />
+                    <div className="flex-1 animate-pulse rounded-3xl bg-white/[0.04]" />
+                    <div className="grid grid-cols-4 gap-3">
+                      {Array.from({ length: 4 }, (_, index) => (
+                        <div
+                          key={index}
+                          className="h-4 animate-pulse rounded-full bg-white/10"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : isChartEmpty ? (
+                  <div className="flex h-full flex-col items-center justify-center rounded-3xl border border-dashed border-white/10 bg-white/[0.02] text-center">
+                    <p className="text-lg font-semibold text-white">
+                      No earnings data yet
+                    </p>
+                    <p className="mt-2 max-w-sm text-sm text-steel">
+                      Earnings will appear here once successful support
+                      transactions are recorded for this period.
+                    </p>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData}>
+                      <defs>
+                        <linearGradient
+                          id="colorAmt"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="5%"
+                            stopColor="#00FFC2"
+                            stopOpacity={0.3}
+                          />
+                          <stop
+                            offset="95%"
+                            stopColor="#00FFC2"
+                            stopOpacity={0}
+                          />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                      <XAxis
+                        dataKey="date"
+                        stroke="#ffffff40"
+                        fontSize={12}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <YAxis
+                        stroke="#ffffff40"
+                        fontSize={12}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={(v) => `${v}`}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "#0A0A0B",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                          borderRadius: "12px",
+                          fontSize: "12px",
+                        }}
+                        itemStyle={{ color: "#00FFC2" }}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="amount"
+                        stroke="#00FFC2"
+                        fillOpacity={1}
+                        fill="url(#colorAmt)"
+                        strokeWidth={3}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </motion.div>
+
+            {/* Asset Breakdown Chart */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-sm shadow-black/40"
+            >
+              <h3 className="mb-6 text-sm font-semibold uppercase tracking-widest text-steel">
+                Asset Distribution
+              </h3>
+              <div className="h-[280px] w-full">
+                {assetBreakdown.length === 0 ? (
+                  <div className="flex h-full flex-col items-center justify-center rounded-3xl border border-dashed border-white/10 bg-white/[0.02] text-center">
+                    <p className="text-lg font-semibold text-white">
+                      No earnings data yet
+                    </p>
+                    <p className="mt-2 max-w-sm text-sm text-steel">
+                      Asset breakdown will appear once you receive support.
+                    </p>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={assetBreakdown}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={100}
+                        paddingAngle={5}
+                        dataKey="amount"
+                        nameKey="assetCode"
+                        label={(props) => {
+                          const entry = props as unknown as AssetBreakdownEntry;
+                          return `${entry.assetCode} ${entry.percentage}%`;
+                        }}
+                        labelLine={false}
+                      >
+                        {assetBreakdown.map((_entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={COLORS[index % COLORS.length]}
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "#0A0A0B",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                          borderRadius: "12px",
+                        }}
+                        formatter={(value, name) => [
+                          `${value} ${name}`,
+                          "Amount",
+                        ]}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+              {assetBreakdown.length > 0 && (
+                <div className="mt-4 border-t border-white/10 pt-4 text-center">
+                  <p className="text-[10px] uppercase tracking-widest text-steel">
+                    Total Earned
+                  </p>
+                  <p className="mt-1 text-xl font-bold text-white tabular-nums">
+                    {assetTotal.toLocaleString(undefined, {
+                      maximumFractionDigits: 7,
+                    })}
+                  </p>
+                </div>
+              )}
+            </motion.div>
+          </div>
+
+          {/* Recent Transactions */}
+          <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold uppercase tracking-widest text-steel font-mono">
+                On-Chain Explorer Integration
+              </h3>
+              {isOwner && (
                 <button
                   type="button"
-                  onClick={handleResendVerification}
-                  disabled={resendingVerification}
-                  className="inline-flex min-h-[36px] items-center justify-center rounded-xl border border-yellow-500/40 bg-yellow-500/10 px-4 py-1.5 text-xs font-bold text-yellow-300 transition hover:bg-yellow-500/20 disabled:cursor-not-allowed disabled:opacity-60 shrink-0"
+                  onClick={handleDownloadCsv}
+                  disabled={csvLoading}
+                  className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-mint/30 bg-mint/10 px-4 py-2 text-xs font-bold text-mint transition hover:bg-mint/20 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {resendingVerification ? (
+                  {csvLoading ? (
                     <span className="flex items-center gap-2">
-                      <span className="h-3 w-3 animate-spin rounded-full border border-yellow-300 border-t-transparent" />
-                      Sending…
+                      <span className="h-3 w-3 animate-spin rounded-full border border-mint border-t-transparent" />
+                      Exporting...
                     </span>
                   ) : (
-                    "Resend verification email"
+                    "Download CSV"
                   )}
                 </button>
-              </div>
-            )}
+              )}
+            </div>
+            <div className="overflow-x-auto -mx-6 px-6">
+              <table className="w-full min-w-[480px] text-left text-sm text-sky/70">
+                <thead className="border-b border-white/10 text-[10px] uppercase tracking-widest text-steel">
+                  <tr>
+                    <th className="pb-4 pr-4">Type</th>
+                    <th className="pb-4 pr-4">Supporter</th>
+                    <th className="pb-4 pr-4">Asset</th>
+                    <th className="pb-4 pr-4">Amount</th>
+                    <th className="pb-4 pr-4 text-right">Age</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {data.recentTransactions.map((item) => (
+                    <tr
+                      key={item.id}
+                      className="group hover:bg-white/[0.02] transition-colors"
+                    >
+                      <td className="py-4 pr-4">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                            item.type === "Drip"
+                              ? "bg-purple-500/10 text-purple-400"
+                              : "bg-mint/10 text-mint"
+                          }`}
+                        >
+                          {item.type}
+                        </span>
+                      </td>
+                      <td className="py-4 pr-4 font-mono text-xs max-w-[120px] truncate">
+                        {item.user}
+                      </td>
+                      <td className="py-4 pr-4 text-white font-medium">
+                        {item.asset}
+                      </td>
+                      <td className="py-4 pr-4 text-white font-medium">
+                        {item.amount}
+                      </td>
+                      <td className="py-4 pr-4 text-right tabular-nums">
+                        {item.age}
+                      </td>
+                    </tr>
+                  ))}
+                  {data.recentTransactions.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-steel">
+                        No recent transactions yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
 
-            {!settings.email && (
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 flex items-center gap-3">
-                <span className="text-xl leading-none">📧</span>
+          {isOwner && settings && (
+            <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
+              <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-steel font-mono">
+                Settings
+              </h3>
+              {settings.email ? (
+                <label className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3">
+                  <span className="text-sm text-sky/80">
+                    Email me when I receive a new support transaction
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={Boolean(settings.notifyOnSupport)}
+                    onClick={() =>
+                      handleNotificationToggle(!settings.notifyOnSupport)
+                    }
+                    disabled={settingsSaving}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+                      settings.notifyOnSupport ? "bg-mint" : "bg-white/20"
+                    } ${settingsSaving ? "opacity-60 cursor-not-allowed" : ""}`}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-black transition ${
+                        settings.notifyOnSupport
+                          ? "translate-x-5"
+                          : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </label>
+              ) : (
                 <p className="text-sm text-sky/70">
-                  Add an email to receive support notifications.{" "}
-                  <Link href="/create" className="text-mint hover:underline font-medium">
+                  Add an email to your profile to enable notifications.{" "}
+                  <Link href="/create" className="text-mint hover:underline">
                     Edit profile
                   </Link>
                 </p>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard 
-            title="Total Raised" 
-            value={`${data.summary.totalRaised.toLocaleString()} XLM`}
-            icon={<Wallet className="text-mint" />}
-            trend={trends.totalRaised}
-            positive={trends.totalRaisedPositive}
-          />
-          <StatCard 
-            title="Contributors" 
-            value={data.summary.totalContributors.toString()}
-            icon={<Users className="text-sky" />}
-            trend={trends.txCount}
-            positive={trends.txCountPositive}
-          />
-          <StatCard 
-            title="Avg. Support" 
-            value={`${data.summary.avgContribution} XLM`}
-            icon={<TrendingUp className="text-gold" />}
-            trend="—"
-            positive={true}
-          />
-          <StatCard 
-            title="Active Drips" 
-            value={data.summary.activeDrips.toString()}
-            icon={<Activity className="text-purple-400" />}
-            trend="—"
-            positive={true}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-          {/* Trend Chart */}
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="col-span-1 rounded-3xl border border-white/10 bg-white/5 p-6 lg:col-span-2 shadow-sm shadow-black/40"
-          >
-            <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <h3 className="text-sm font-semibold uppercase tracking-widest text-steel">
-                Earnings Trend
-              </h3>
-              <div className="inline-flex rounded-full border border-white/10 bg-white/5 p-1">
-                {(["7D", "30D", "90D"] as const).map((period) => (
-                  <button
-                    key={period}
-                    type="button"
-                    onClick={() => setSelectedPeriod(period)}
-                    className={`min-h-[44px] rounded-full px-4 py-2 text-xs font-semibold transition ${
-                      selectedPeriod === period
-                        ? "bg-mint text-ink"
-                        : "text-sky/70 hover:text-white"
-                    }`}
-                  >
-                    {period}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="h-[350px] w-full">
-              {chartLoading ? (
-                <div className="grid h-full gap-4">
-                  <div className="h-8 w-32 animate-pulse rounded-full bg-white/10" />
-                  <div className="flex-1 animate-pulse rounded-3xl bg-white/[0.04]" />
-                  <div className="grid grid-cols-4 gap-3">
-                    {Array.from({ length: 4 }, (_, index) => (
-                      <div key={index} className="h-4 animate-pulse rounded-full bg-white/10" />
-                    ))}
-                  </div>
-                </div>
-              ) : isChartEmpty ? (
-                <div className="flex h-full flex-col items-center justify-center rounded-3xl border border-dashed border-white/10 bg-white/[0.02] text-center">
-                  <p className="text-lg font-semibold text-white">No earnings data yet</p>
-                  <p className="mt-2 max-w-sm text-sm text-steel">
-                    Earnings will appear here once successful support transactions are recorded for this period.
-                  </p>
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="colorAmt" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#00FFC2" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#00FFC2" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-                    <XAxis 
-                      dataKey="date" 
-                      stroke="#ffffff40" 
-                      fontSize={12}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis 
-                      stroke="#ffffff40" 
-                      fontSize={12}
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={(v) => `${v}`}
-                    />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: "#0A0A0B", 
-                        border: "1px solid rgba(255,255,255,0.1)",
-                        borderRadius: "12px",
-                        fontSize: "12px"
-                      }}
-                      itemStyle={{ color: "#00FFC2" }}
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="amount" 
-                      stroke="#00FFC2" 
-                      fillOpacity={1} 
-                      fill="url(#colorAmt)" 
-                      strokeWidth={3}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
               )}
-            </div>
-          </motion.div>
-
-          {/* Asset Breakdown Chart */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-sm shadow-black/40"
-          >
-            <h3 className="mb-6 text-sm font-semibold uppercase tracking-widest text-steel">
-              Asset Distribution
-            </h3>
-            <div className="h-[280px] w-full">
-              {assetBreakdown.length === 0 ? (
-                <div className="flex h-full flex-col items-center justify-center rounded-3xl border border-dashed border-white/10 bg-white/[0.02] text-center">
-                  <p className="text-lg font-semibold text-white">No earnings data yet</p>
-                  <p className="mt-2 max-w-sm text-sm text-steel">
-                    Asset breakdown will appear once you receive support.
-                  </p>
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={assetBreakdown}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={5}
-                      dataKey="amount"
-                      nameKey="assetCode"
-                      label={(props) => {
-                        const entry = props as unknown as AssetBreakdownEntry;
-                        return `${entry.assetCode} ${entry.percentage}%`;
-                      }}
-                      labelLine={false}
-                    >
-                      {assetBreakdown.map((_entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#0A0A0B",
-                        border: "1px solid rgba(255,255,255,0.1)",
-                        borderRadius: "12px",
-                      }}
-                      formatter={(value, name) => [`${value} ${name}`, "Amount"]}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-            {assetBreakdown.length > 0 && (
-              <div className="mt-4 border-t border-white/10 pt-4 text-center">
-                <p className="text-[10px] uppercase tracking-widest text-steel">Total Earned</p>
-                <p className="mt-1 text-xl font-bold text-white tabular-nums">
-                  {assetTotal.toLocaleString(undefined, { maximumFractionDigits: 7 })}
-                </p>
-              </div>
-            )}
-          </motion.div>
-        </div>
-
-        {/* Recent Transactions */}
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold uppercase tracking-widest text-steel font-mono">
-              On-Chain Explorer Integration
-            </h3>
-            {isOwner && (
-              <button
-                type="button"
-                onClick={handleDownloadCsv}
-                disabled={csvLoading}
-                className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-mint/30 bg-mint/10 px-4 py-2 text-xs font-bold text-mint transition hover:bg-mint/20 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {csvLoading ? (
-                  <span className="flex items-center gap-2">
-                    <span className="h-3 w-3 animate-spin rounded-full border border-mint border-t-transparent" />
-                    Exporting...
-                  </span>
-                ) : (
-                  "Download CSV"
-                )}
-              </button>
-            )}
-          </div>
-          <div className="overflow-x-auto -mx-6 px-6">
-            <table className="w-full min-w-[480px] text-left text-sm text-sky/70">
-              <thead className="border-b border-white/10 text-[10px] uppercase tracking-widest text-steel">
-                <tr>
-                  <th className="pb-4 pr-4">Type</th>
-                  <th className="pb-4 pr-4">Supporter</th>
-                  <th className="pb-4 pr-4">Asset</th>
-                  <th className="pb-4 pr-4">Amount</th>
-                  <th className="pb-4 pr-4 text-right">Age</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                {data.recentTransactions.map((item) => (
-                  <tr key={item.id} className="group hover:bg-white/[0.02] transition-colors">
-                    <td className="py-4 pr-4">
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                        item.type === "Drip" ? "bg-purple-500/10 text-purple-400" : "bg-mint/10 text-mint"
-                      }`}>
-                        {item.type}
-                      </span>
-                    </td>
-                    <td className="py-4 pr-4 font-mono text-xs max-w-[120px] truncate">{item.user}</td>
-                    <td className="py-4 pr-4 text-white font-medium">{item.asset}</td>
-                    <td className="py-4 pr-4 text-white font-medium">{item.amount}</td>
-                    <td className="py-4 pr-4 text-right tabular-nums">{item.age}</td>
-                  </tr>
-                ))}
-                {data.recentTransactions.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center text-steel">
-                      No recent transactions yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        {isOwner && settings && (
+            </section>
+          )}
+          {/* Recurring Drips */}
           <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
-            <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-steel font-mono">
-              Settings
-            </h3>
-            {settings.email ? (
-              <label className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3">
-                <span className="text-sm text-sky/80">
-                  Email me when I receive a new support transaction
+            <div className="mb-6 flex items-center justify-between">
+              <h3 className="text-sm font-semibold uppercase tracking-widest text-steel font-mono">
+                Active Drips
+              </h3>
+              {drips.length > 0 && (
+                <span className="rounded-full bg-purple-500/10 px-3 py-1 text-xs font-bold text-purple-400">
+                  {drips.length} active
                 </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={Boolean(settings.notifyOnSupport)}
-                  onClick={() => handleNotificationToggle(!settings.notifyOnSupport)}
-                  disabled={settingsSaving}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
-                    settings.notifyOnSupport ? "bg-mint" : "bg-white/20"
-                  } ${settingsSaving ? "opacity-60 cursor-not-allowed" : ""}`}
-                >
-                  <span
-                    className={`inline-block h-5 w-5 transform rounded-full bg-black transition ${
-                      settings.notifyOnSupport ? "translate-x-5" : "translate-x-1"
-                    }`}
-                  />
-                </button>
-              </label>
-            ) : (
-              <p className="text-sm text-sky/70">
-                Add an email to your profile to enable notifications.{" "}
-                <Link href="/create" className="text-mint hover:underline">
-                  Edit profile
-                </Link>
+              )}
+            </div>
+
+            {dripsLoading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 3 }, (_, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4"
+                  >
+                    <div className="h-4 w-24 animate-pulse rounded bg-white/10" />
+                    <div className="h-4 w-16 animate-pulse rounded bg-white/10" />
+                    <div className="h-4 w-20 animate-pulse rounded bg-white/10" />
+                    <div className="ml-auto h-8 w-20 animate-pulse rounded-xl bg-white/10" />
+                  </div>
+                ))}
+              </div>
+            ) : drips.length === 0 ? (
+              <p className="py-8 text-center text-sm text-steel">
+                No active drips{isOwner ? " set up for this profile" : ""}.
               </p>
+            ) : (
+              <div className="space-y-3">
+                {drips.map((drip) => (
+                  <div
+                    key={drip.id}
+                    className="flex flex-wrap items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4"
+                  >
+                    {isOwner ? (
+                      <>
+                        <span className="min-w-0 flex-1 font-mono text-xs text-sky/80">
+                          {drip.supporterAddress
+                            ? `${drip.supporterAddress.slice(0, 6)}...${drip.supporterAddress.slice(-4)}`
+                            : "Unknown"}
+                        </span>
+                      </>
+                    ) : (
+                      <Link
+                        href={`/profile/${drip.profileUsername}`}
+                        className="min-w-0 flex-1 text-sm font-semibold text-white hover:text-mint transition-colors"
+                      >
+                        {drip.profileDisplayName ?? drip.profileUsername}
+                      </Link>
+                    )}
+                    <span className="text-sm font-bold text-white">
+                      {parseFloat(drip.amount).toLocaleString()}{" "}
+                      {drip.assetCode}
+                    </span>
+                    <span className="rounded-full border border-white/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase text-sky/70">
+                      {drip.frequency}
+                    </span>
+                    <span className="text-xs text-sky/60">
+                      Next: {new Date(drip.nextRunAt).toLocaleDateString()}
+                    </span>
+                    {!isOwner && (
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleDripAction(drip.id, "paused")}
+                          disabled={dripActionLoading === drip.id}
+                          className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-sky/70 transition hover:bg-white/10 disabled:opacity-50"
+                        >
+                          {dripActionLoading === drip.id ? "..." : "Pause"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDripAction(drip.id, "cancelled")}
+                          disabled={dripActionLoading === drip.id}
+                          className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-400 transition hover:bg-red-500/20 disabled:opacity-50"
+                        >
+                          {dripActionLoading === drip.id ? "..." : "Cancel"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
           </section>
-        )}
-        {/* Recurring Drips */}
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
-          <div className="mb-6 flex items-center justify-between">
-            <h3 className="text-sm font-semibold uppercase tracking-widest text-steel font-mono">
-              Active Drips
-            </h3>
-            {drips.length > 0 && (
-              <span className="rounded-full bg-purple-500/10 px-3 py-1 text-xs font-bold text-purple-400">
-                {drips.length} active
-              </span>
-            )}
-          </div>
-
-          {dripsLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 3 }, (_, i) => (
-                <div key={i} className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-                  <div className="h-4 w-24 animate-pulse rounded bg-white/10" />
-                  <div className="h-4 w-16 animate-pulse rounded bg-white/10" />
-                  <div className="h-4 w-20 animate-pulse rounded bg-white/10" />
-                  <div className="ml-auto h-8 w-20 animate-pulse rounded-xl bg-white/10" />
-                </div>
-              ))}
-            </div>
-          ) : drips.length === 0 ? (
-            <p className="py-8 text-center text-sm text-steel">
-              No active drips{isOwner ? " set up for this profile" : ""}.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {drips.map((drip) => (
-                <div
-                  key={drip.id}
-                  className="flex flex-wrap items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4"
-                >
-                  {isOwner ? (
-                    <>
-                      <span className="min-w-0 flex-1 font-mono text-xs text-sky/80">
-                        {drip.supporterAddress
-                          ? `${drip.supporterAddress.slice(0, 6)}...${drip.supporterAddress.slice(-4)}`
-                          : "Unknown"}
-                      </span>
-                    </>
-                  ) : (
-                    <Link
-                      href={`/profile/${drip.profileUsername}`}
-                      className="min-w-0 flex-1 text-sm font-semibold text-white hover:text-mint transition-colors"
-                    >
-                      {drip.profileDisplayName ?? drip.profileUsername}
-                    </Link>
-                  )}
-                  <span className="text-sm font-bold text-white">
-                    {parseFloat(drip.amount).toLocaleString()} {drip.assetCode}
-                  </span>
-                  <span className="rounded-full border border-white/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase text-sky/70">
-                    {drip.frequency}
-                  </span>
-                  <span className="text-xs text-sky/60">
-                    Next: {new Date(drip.nextRunAt).toLocaleDateString()}
-                  </span>
-                  {!isOwner && (
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleDripAction(drip.id, "paused")}
-                        disabled={dripActionLoading === drip.id}
-                        className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-sky/70 transition hover:bg-white/10 disabled:opacity-50"
-                      >
-                        {dripActionLoading === drip.id ? "..." : "Pause"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDripAction(drip.id, "cancelled")}
-                        disabled={dripActionLoading === drip.id}
-                        className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-400 transition hover:bg-red-500/20 disabled:opacity-50"
-                      >
-                        {dripActionLoading === drip.id ? "..." : "Cancel"}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
-    </AppShell>
+        </div>
+      </AppShell>
     </ErrorBoundary>
   );
 }
 
-function StatCard({ title, value, icon, trend, positive }: { 
-  title: string; 
-  value: string; 
-  icon: React.ReactNode; 
+function StatCard({
+  title,
+  value,
+  icon,
+  trend,
+  positive,
+}: {
+  title: string;
+  value: string;
+  icon: React.ReactNode;
   trend: string;
   positive: boolean;
 }) {
   return (
-    <motion.div 
+    <motion.div
       whileHover={{ scale: 1.02 }}
       className="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-black/20"
     >
       <div className="flex items-center justify-between">
-        <div className="rounded-2xl bg-white/5 p-3">
-          {icon}
-        </div>
-        <div className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-tight ${
-          trend === "—" || trend === "No change" ? "text-steel" : positive ? "text-mint" : "text-red-400"
-        }`}>
-          {trend !== "—" && trend !== "No change" && (positive ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />)}
+        <div className="rounded-2xl bg-white/5 p-3">{icon}</div>
+        <div
+          className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-tight ${
+            trend === "—" || trend === "No change"
+              ? "text-steel"
+              : positive
+                ? "text-mint"
+                : "text-red-400"
+          }`}
+        >
+          {trend !== "—" &&
+            trend !== "No change" &&
+            (positive ? (
+              <ArrowUpRight size={14} />
+            ) : (
+              <ArrowDownRight size={14} />
+            ))}
           {trend}
         </div>
       </div>
