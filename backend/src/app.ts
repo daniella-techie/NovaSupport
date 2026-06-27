@@ -1158,9 +1158,6 @@ All errors return JSON with an \`error\` field and optional \`code\`:
     }
 
     try {
-      // Ensure pg_trgm extension is available
-      await prisma.$executeRawUnsafe("CREATE EXTENSION IF NOT EXISTS pg_trgm");
-
       const pagination = profileSearchPaginationSchema.safeParse(req.query);
       if (!pagination.success) {
         return sendError(res, 400, "Invalid pagination parameters", "INVALID_PAGINATION");
@@ -2632,6 +2629,8 @@ All errors return JSON with an \`error\` field and optional \`code\`:
         }
       }
 
+      const MAX_EXPORT_ROWS = 10_000;
+
       // Fetch transactions with optional date filtering
       const transactions = await prisma.supportTransaction.findMany({
         where: {
@@ -2646,6 +2645,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
             : {}),
         },
         orderBy: { createdAt: "asc" },
+        take: MAX_EXPORT_ROWS,
       });
 
       // Generate CSV
@@ -3467,6 +3467,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
       }
 
       if (format === "csv") {
+        const MAX_EXPORT_ROWS = 10_000;
         const transactions = await prisma.supportTransaction.findMany({
           where: {
             profileId: profile.id,
@@ -3475,6 +3476,7 @@ All errors return JSON with an \`error\` field and optional \`code\`:
               : {}),
           },
           orderBy: { createdAt: "desc" },
+          take: MAX_EXPORT_ROWS,
         });
         const filenameSafeCampaignId = campaignId.replace(/[^a-zA-Z0-9_-]/g, "-");
 
@@ -3947,11 +3949,21 @@ All errors return JSON with an \`error\` field and optional \`code\`:
         return sendError(res, 400, "Invalid Stellar address");
       }
 
-      const transactions = await prisma.supportTransaction.findMany({
-        where: { supporterAddress: address },
-        include: { profile: { select: { username: true, displayName: true } } },
-        orderBy: { createdAt: "desc" },
-      });
+      const limit = Math.min(parseInt(req.query.limit as string) || 10, 100);
+      const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
+
+      const [transactions, totalCount] = await Promise.all([
+        prisma.supportTransaction.findMany({
+          where: { supporterAddress: address },
+          include: { profile: { select: { username: true, displayName: true } } },
+          orderBy: { createdAt: "desc" },
+          take: limit,
+          skip: offset,
+        }),
+        prisma.supportTransaction.count({
+          where: { supporterAddress: address },
+        }),
+      ]);
 
       const profilesSupported = new Set(transactions.map((tx: any) => tx.profileId)).size;
       const assetMap = new Map<string, number>();
@@ -3997,12 +4009,17 @@ All errors return JSON with an \`error\` field and optional \`code\`:
 
       return res.json({
         address,
-        totalTransactions: transactions.length,
+        totalTransactions: totalCount,
         profilesSupported,
         totalByAsset,
         supportedProfiles,
-        transactions: history,
-        recentTransactions: history.slice(0, 10),
+        recentTransactions: history,
+        pagination: {
+          limit,
+          offset,
+          total: totalCount,
+          hasMore: offset + limit < totalCount,
+        },
       });
     } catch {
       return sendError(res, 500, "Internal server error");
