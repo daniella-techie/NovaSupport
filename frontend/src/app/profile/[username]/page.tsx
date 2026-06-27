@@ -32,6 +32,15 @@ type Profile = {
   emailVerified?: boolean;
 };
 
+type SupportTx = {
+  txHash: string;
+  amount: string;
+  assetCode: string;
+  message?: string | null;
+  createdAt: string;
+  senderAddress: string;
+};
+
 type Milestone = {
   id: string;
   title: string;
@@ -50,6 +59,7 @@ type Badge = {
   icon: string;
   awardedAt: string;
 };
+
 type LeaderboardEntry = {
   rank: number;
   supporterAddress: string;
@@ -57,19 +67,19 @@ type LeaderboardEntry = {
   assetCode: string;
 };
 
+type ProfileStats = {
+  totalTransactions: number;
+  uniqueSupporters: number;
+  assetTotals: Array<{ assetCode: string; total: string }>;
+};
+
 async function getProfile(username: string): Promise<Profile> {
-  // Use a cache-busting or lower revalidation for profile page
   const res = await fetch(`${API_BASE_URL}/profiles/${username}`, {
     next: { revalidate: 10 },
   });
 
-  if (res.status === 404) {
-    notFound();
-  }
-
-  if (!res.ok) {
-    throw new Error("Failed to fetch profile");
-  }
+  if (res.status === 404) notFound();
+  if (!res.ok) throw new Error("Failed to fetch profile");
 
   return res.json();
 }
@@ -84,9 +94,7 @@ export async function generateMetadata({
   });
 
   if (!res.ok) {
-    return {
-      title: "Profile not found — NovaSupport",
-    };
+    return { title: "Profile not found — NovaSupport" };
   }
 
   const profile: Profile = await res.json();
@@ -96,16 +104,14 @@ export async function generateMetadata({
     description: profile.bio ?? `Support ${profile.displayName} on NovaSupport`,
     openGraph: {
       title: `${profile.displayName} on NovaSupport`,
-      description:
-        profile.bio ?? `Support ${profile.displayName} on NovaSupport`,
+      description: profile.bio ?? `Support ${profile.displayName} on NovaSupport`,
       url: `${SITE_URL}/profile/${params.username}`,
       type: "profile",
     },
     twitter: {
       card: "summary_large_image",
       title: `${profile.displayName} on NovaSupport`,
-      description:
-        profile.bio ?? `Support ${profile.displayName} on NovaSupport`,
+      description: profile.bio ?? `Support ${profile.displayName} on NovaSupport`,
     },
     alternates: {
       types: {
@@ -113,6 +119,16 @@ export async function generateMetadata({
       },
     },
   };
+}
+
+async function getTransactions(username: string, limit = 10): Promise<SupportTx[]> {
+  const res = await fetch(
+    `${API_BASE_URL}/profiles/${username}/transactions?limit=${limit}`,
+    { next: { revalidate: 60 } },
+  );
+  if (!res.ok) return [];
+  const body = await res.json();
+  return body.transactions ?? [];
 }
 
 function truncateAddress(address: string): string {
@@ -124,22 +140,17 @@ async function getLeaderboard(username: string): Promise<LeaderboardEntry[]> {
   const res = await fetch(`${API_BASE_URL}/profiles/${username}/leaderboard`, {
     next: { revalidate: 60 },
   });
-
   if (!res.ok) return [];
 
   const body = (await res.json()) as {
     leaderboard?: Array<Record<string, unknown>>;
   };
 
-  const source = body.leaderboard ?? [];
-  return source
+  return (body.leaderboard ?? [])
     .slice(0, 5)
     .map((entry, index) => {
       const address = String(
-        entry.supporterAddress ??
-          entry.supporter_address ??
-          entry.address ??
-          "",
+        entry.supporterAddress ?? entry.supporter_address ?? entry.address ?? "",
       );
       const amount = String(
         entry.totalAmount ?? entry.total_amount ?? entry.amount ?? "0",
@@ -148,12 +159,8 @@ async function getLeaderboard(username: string): Promise<LeaderboardEntry[]> {
         entry.assetCode ?? entry.asset_code ?? entry.asset ?? "XLM",
       );
       const rankFromApi = Number(entry.rank);
-
       return {
-        rank:
-          Number.isFinite(rankFromApi) && rankFromApi > 0
-            ? rankFromApi
-            : index + 1,
+        rank: Number.isFinite(rankFromApi) && rankFromApi > 0 ? rankFromApi : index + 1,
         supporterAddress: address,
         totalAmount: amount,
         assetCode,
@@ -162,15 +169,9 @@ async function getLeaderboard(username: string): Promise<LeaderboardEntry[]> {
     .filter((entry) => entry.supporterAddress.length > 0);
 }
 
-type ProfileStats = {
-  totalTransactions: number;
-  uniqueSupporters: number;
-  assetTotals: Array<{ assetCode: string; total: string }>;
-};
-
 async function getStats(username: string): Promise<ProfileStats | null> {
   const res = await fetch(`${API_BASE_URL}/profiles/${username}/stats`, {
-    next: { revalidate: 60 }
+    next: { revalidate: 60 },
   });
   if (!res.ok) return null;
   return res.json();
@@ -195,15 +196,31 @@ async function getBadges(username: string): Promise<Badge[]> {
 }
 
 export default async function ProfilePage({ params }: PageProps) {
-  const [profile, leaderboard, stats, milestones, badges] = await Promise.all([
-    getProfile(params.username),
-    getLeaderboard(params.username),
-    getStats(params.username),
-    getMilestones(params.username),
-    getBadges(params.username),
-  ]);
+  const [profile, transactions, leaderboard, stats, milestones, badges] =
+    await Promise.all([
+      getProfile(params.username),
+      getTransactions(params.username, 10),
+      getLeaderboard(params.username),
+      getStats(params.username),
+      getMilestones(params.username),
+      getBadges(params.username),
+    ]);
 
-  const visibleMilestones = milestones.filter((m) => m.status === "active" || m.status === "reached");
+  const visibleMilestones = milestones.filter(
+    (m) => m.status === "active" || m.status === "reached",
+  );
+
+  const activeMilestone = visibleMilestones.find((m) => m.status === "active");
+  const milestoneProgress = activeMilestone
+    ? Math.min(
+        100,
+        Math.round(
+          (parseFloat(activeMilestone.currentAmount) /
+            parseFloat(activeMilestone.targetAmount)) *
+            100,
+        ),
+      )
+    : null;
 
   return (
     <AppShell>
@@ -265,7 +282,7 @@ export default async function ProfilePage({ params }: PageProps) {
               </div>
             </div>
           )}
-          
+
           <div className="px-2">
             <h3 className="text-sm font-semibold uppercase tracking-widest text-steel mb-4">
               Activity Feed
@@ -302,7 +319,7 @@ export default async function ProfilePage({ params }: PageProps) {
                     className="flex items-center justify-between gap-4"
                   >
                     <span className="text-xs text-sky/70">#{entry.rank}</span>
-                    <a
+                    
                       href={stellarExpertUrl("account", entry.supporterAddress)}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -337,19 +354,29 @@ export default async function ProfilePage({ params }: PageProps) {
               <div className="flex items-center justify-between">
                 <span className="text-sm text-sky/60">Total Raised</span>
                 <span className="text-sm font-bold text-white">
-                  {stats?.assetTotals?.[0]?.total || "0"} {stats?.assetTotals?.[0]?.assetCode || "XLM"}
+                  {stats?.assetTotals?.[0]?.total || "0"}{" "}
+                  {stats?.assetTotals?.[0]?.assetCode || "XLM"}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-sky/60">Supporters</span>
-                <span className="text-sm font-bold text-white">{stats?.uniqueSupporters || 0}</span>
+                <span className="text-sm font-bold text-white">
+                  {stats?.uniqueSupporters || 0}
+                </span>
               </div>
-              <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden mt-2">
-                <div className="bg-mint h-full w-[25%]" />
-              </div>
-              <p className="text-[10px] text-steel text-center italic">
-                Stats updated recently
-              </p>
+              {milestoneProgress !== null && (
+                <>
+                  <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden mt-2">
+                    <div
+                      className="bg-mint h-full transition-all"
+                      style={{ width: `${milestoneProgress}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-steel text-center italic">
+                    {milestoneProgress}% of goal reached
+                  </p>
+                </>
+              )}
             </div>
           </div>
         </aside>
