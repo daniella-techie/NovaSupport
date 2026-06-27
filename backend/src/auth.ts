@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { randomBytes } from "node:crypto";
 import { Keypair, StrKey } from "@stellar/stellar-sdk";
 import { logger } from "./logger.js";
 
@@ -11,7 +12,6 @@ if (!JWT_SECRET) {
   throw new Error("FATAL: JWT_SECRET environment variable is required but not set. Application cannot start.");
 }
 
-// Type assertion after validation - we know JWT_SECRET is a string now
 const JWT_SECRET_VALIDATED: string = JWT_SECRET;
 
 export type AuthContext = {
@@ -25,27 +25,19 @@ declare module "express" {
   }
 }
 
-// Generate a challenge nonce for wallet signature
 export function generateChallenge(walletAddress: string): string {
   const timestamp = Date.now();
-  const randomBytes = Buffer.from(
-    Array.from({ length: 16 }, () => Math.floor(Math.random() * 256))
-  ).toString("hex");
-  return `novasupport:${walletAddress}:${timestamp}:${randomBytes}`;
+  const randomHex = randomBytes(16).toString("hex");
+  return `novasupport:${walletAddress}:${timestamp}:${randomHex}`;
 }
 
-// Verify Stellar wallet signature
 export function verifySignature(
   walletAddress: string,
   challenge: string,
   signature: string
 ): boolean {
   try {
-    // The walletAddress is already the public key string (G...)
-    // Create a Keypair from the public key for verification
     const keypair = Keypair.fromPublicKey(walletAddress);
-    
-    // Verify the signature - stellar-sdk verify expects (message: Buffer, signature: Buffer)
     const messageBuffer = Buffer.from(challenge, 'utf8');
     const sigBuffer = Buffer.from(signature, 'base64');
     return keypair.verify(messageBuffer, sigBuffer);
@@ -55,7 +47,6 @@ export function verifySignature(
   }
 }
 
-// Sign a JWT for an authenticated wallet
 export function signJWT(walletAddress: string, userId?: string): string {
   return jwt.sign(
     { walletAddress, userId },
@@ -64,7 +55,6 @@ export function signJWT(walletAddress: string, userId?: string): string {
   );
 }
 
-// Verify and decode JWT
 export function verifyJWT(token: string): AuthContext | null {
   try {
     const decoded = jwt.verify(token, JWT_SECRET_VALIDATED) as AuthContext;
@@ -74,7 +64,6 @@ export function verifyJWT(token: string): AuthContext | null {
   }
 }
 
-// Middleware to require authentication
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
   
@@ -95,7 +84,6 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   next();
 }
 
-// Middleware to optionally attach auth context (doesn't require auth)
 export function optionalAuth(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
   
@@ -110,7 +98,6 @@ export function optionalAuth(req: Request, res: Response, next: NextFunction): v
   next();
 }
 
-// Validate Stellar address format
 export function isValidStellarAddress(address: string): boolean {
   return StrKey.isValidEd25519PublicKey(address);
 }
